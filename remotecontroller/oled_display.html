@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Remote Controller OLED Display</title>
+    <style>
+        body {
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .oled-display {
+            width: 400px;
+            height: 200px;
+            background-color: #000;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            color: #fff;
+        }
+
+        .status-bar {
+            height: 30px;
+            border: 1px solid #333;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 10px;
+        }
+
+        .signal-strength {
+            display: flex;
+            gap: 4px;
+        }
+
+        .signal-bar {
+            width: 8px;
+            height: 12px;
+            background-color: #fff;
+        }
+
+        .battery {
+            width: 40px;
+            height: 16px;
+            border: 1px solid #fff;
+            position: relative;
+        }
+
+        .battery-level {
+            width: 85%;
+            height: 12px;
+            background-color: #fff;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+        }
+
+        .main-display {
+            border: 1px solid #333;
+            height: 140px;
+            padding: 10px;
+        }
+
+        .channel-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .channel {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .channel-label {
+            width: 60px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .progress-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 16px;
+            background-color: #333;
+            position: relative;
+            border-radius: 2px;
+        }
+
+        .progress-level {
+            height: 100%;
+            background-color: #fff;
+            position: absolute;
+            left: 0;
+            top: 0;
+            border-radius: 2px;
+        }
+
+        .channel-value {
+            width: 50px;
+            font-family: monospace;
+            text-align: right;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="oled-display">
+        <div class="status-bar">
+            <div class="signal-strength">
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+            </div>
+            <div class="battery">
+                <div class="battery-level"></div>
+            </div>
+        </div>
+        <div class="main-display">
+            <div class="channel-container">
+                <div class="channel">
+                    <span class="channel-label">油门</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 60%"></div>
+                        </div>
+                        <span class="channel-value">60%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">俯仰</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 75%"></div>
+                        </div>
+                        <span class="channel-value">75%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">翻滚</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 25%"></div>
+                        </div>
+                        <span class="channel-value">25%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">方向</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 45%"></div>
+                        </div>
+                        <span class="channel-value">45%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 
