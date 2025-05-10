@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimalist Display</title>
+    <style>
+        body {
+            background-color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .oled-display {
+            width: 400px;
+            height: 200px;
+            background: #ffffff;
+            border-radius: 30px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            color: #333333;
+            border: 1px solid #eeeeee;
+        }
+
+        .status-bar {
+            height: 30px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 10px;
+        }
+
+        .signal-strength {
+            display: flex;
+            gap: 4px;
+        }
+
+        .signal-bar {
+            width: 8px;
+            height: 12px;
+            background-color: #333333;
+            border-radius: 1px;
+        }
+
+        .battery {
+            width: 40px;
+            height: 16px;
+            border: 1px solid #333333;
+            position: relative;
+            border-radius: 2px;
+        }
+
+        .battery-level {
+            width: 85%;
+            height: 12px;
+            background-color: #333333;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            border-radius: 1px;
+        }
+
+        .main-display {
+            height: 140px;
+            padding: 15px;
+        }
+
+        .channel-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .channel {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .channel-label {
+            width: 60px;
+            color: #666666;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .progress-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 4px;
+            background-color: #eeeeee;
+            position: relative;
+            border-radius: 2px;
+        }
+
+        .progress-level {
+            height: 100%;
+            background-color: #333333;
+            position: absolute;
+            left: 0;
+            top: 0;
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .channel-value {
+            width: 50px;
+            font-family: 'Helvetica Neue', monospace;
+            text-align: right;
+            color: #333333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .divider {
+            height: 1px;
+            background-color: #eeeeee;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="oled-display">
+        <div class="status-bar">
+            <div class="signal-strength">
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+            </div>
+            <div class="battery">
+                <div class="battery-level"></div>
+            </div>
+        </div>
+        <div class="divider"></div>
+        <div class="main-display">
+            <div class="channel-container">
+                <div class="channel">
+                    <span class="channel-label">油门</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 60%"></div>
+                        </div>
+                        <span class="channel-value">60%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">俯仰</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 75%"></div>
+                        </div>
+                        <span class="channel-value">75%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">翻滚</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 25%"></div>
+                        </div>
+                        <span class="channel-value">25%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">方向</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 45%"></div>
+                        </div>
+                        <span class="channel-value">45%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Modern Tech Display</title>
+    <style>
+        body {
+            background-color: #0a192f;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Roboto', sans-serif;
+        }
+
+        .oled-display {
+            width: 400px;
+            height: 200px;
+            background: linear-gradient(135deg, #112240, #0a192f);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 0 40px rgba(64, 169, 255, 0.2);
+            color: #40a9ff;
+            border: 1px solid rgba(64, 169, 255, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        .status-bar {
+            height: 30px;
+            border: 1px solid rgba(64, 169, 255, 0.3);
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 10px;
+            background: rgba(64, 169, 255, 0.1);
+            border-radius: 8px;
+        }
+
+        .signal-strength {
+            display: flex;
+            gap: 4px;
+        }
+
+        .signal-bar {
+            width: 8px;
+            height: 12px;
+            background: linear-gradient(180deg, #40a9ff, #1890ff);
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(64, 169, 255, 0.5);
+        }
+
+        .battery {
+            width: 40px;
+            height: 16px;
+            border: 1px solid rgba(64, 169, 255, 0.3);
+            position: relative;
+            background: rgba(64, 169, 255, 0.1);
+            border-radius: 4px;
+        }
+
+        .battery-level {
+            width: 85%;
+            height: 12px;
+            background: linear-gradient(90deg, #40a9ff, #1890ff);
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(64, 169, 255, 0.5);
+        }
+
+        .main-display {
+            border: 1px solid rgba(64, 169, 255, 0.3);
+            height: 140px;
+            padding: 15px;
+            background: rgba(64, 169, 255, 0.05);
+            border-radius: 12px;
+        }
+
+        .channel-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .channel {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .channel-label {
+            width: 60px;
+            color: #40a9ff;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .progress-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 16px;
+            background: rgba(64, 169, 255, 0.1);
+            position: relative;
+            border-radius: 8px;
+            border: 1px solid rgba(64, 169, 255, 0.3);
+            overflow: hidden;
+        }
+
+        .progress-level {
+            height: 100%;
+            background: linear-gradient(90deg, #40a9ff, #1890ff);
+            position: absolute;
+            left: 0;
+            top: 0;
+            border-radius: 8px;
+            box-shadow: 0 0 8px rgba(64, 169, 255, 0.5);
+            transition: width 0.3s ease;
+        }
+
+        .channel-value {
+            width: 50px;
+            font-family: 'Roboto Mono', monospace;
+            text-align: right;
+            color: #40a9ff;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="oled-display">
+        <div class="status-bar">
+            <div class="signal-strength">
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+            </div>
+            <div class="battery">
+                <div class="battery-level"></div>
+            </div>
+        </div>
+        <div class="main-display">
+            <div class="channel-container">
+                <div class="channel">
+                    <span class="channel-label">油门</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 60%"></div>
+                        </div>
+                        <span class="channel-value">60%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">俯仰</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 75%"></div>
+                        </div>
+                        <span class="channel-value">75%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">翻滚</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 25%"></div>
+                        </div>
+                        <span class="channel-value">25%</span>
+                    </div>
+                </div>
+                <div class="channel">
+                    <span class="channel-label">方向</span>
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div class="progress-level" style="width: 45%"></div>
+                        </div>
+                        <span class="channel-value">45%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 
