@@ -358,10 +358,10 @@ void initRF(){
   Serial.println("无线模块正常");
 
   radio.setChannel(108); 
-  radio.setDataRate(RF24_1MBPS);  // 提高数据速率到1Mbps
+  radio.setDataRate(RF24_250KBPS);  
   radio.setPALevel(RF24_PA_MAX);
   radio.openWritingPipe(address);
-  radio.setRetries(3, 5);        // 减少重试次数和延迟
+  radio.setRetries(5, 15);        // 减少重试次数和延迟
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
   radio.stopListening();
