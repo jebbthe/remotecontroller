@@ -32,11 +32,17 @@ unsigned long lastAlertTime = 0;
 unsigned long failedCount = 0;
 const unsigned long ALERT_LIMIT = 250;
 
+// Add flight mode enum after ModelType enum
+enum FlightMode { FLIGHT_MODE_MANUAL, FLIGHT_MODE_STABILIZE, FLIGHT_MODE_HOLD };
+
 struct ControlData {
-  uint16_t throttle;
-  int16_t left_flap;
-  int16_t right_flap;
-  uint8_t checksum;
+  uint8_t aircraft_type;      // 机型
+  uint8_t flight_mode;        // 飞行模式
+  uint16_t throttle;          // 油门
+  int16_t ch1;                // 通道1
+  int16_t ch2;                // 通道2
+  int16_t ch3;                // 通道3
+  uint8_t checksum;           // 校验和
 };
 
 ControlData lastData;           //近一次控制数据
@@ -48,7 +54,7 @@ unsigned long lastRollTime = 0;
 int lastRollValue = 512;
 
 // Menu system variables
-enum ModelType { PAPER_PLANE, CAMEL_FIGHTER };
+enum ModelType { PAPER_PLANE, CAMEL_FIGHTER, P51_FIGHTER };
 enum MixMode { MIXED, DIRECT };
 struct Config {
   ModelType modelType;
@@ -84,7 +90,7 @@ struct StoredConfig {
 
 // Menu items count for each state
 const int MAIN_MENU_ITEMS = 5;  // Load Config, Model Type, Mix Mode, CH1 Reverse, CH2 Reverse
-const int MODEL_SELECT_ITEMS = 2;  // Paper Plane, Camel Fighter
+const int MODEL_SELECT_ITEMS = 3;  // Paper Plane, Camel Fighter, P51 Fighter
 const int MIX_SELECT_ITEMS = 2;    // Mixed, Direct
 const int REVERSE_ITEMS = 2;       // Normal, Reversed
 
@@ -202,6 +208,7 @@ void displayMenu() {
         switch(i) {
           case 0: oled.println(F("Paper Plane")); break;
           case 1: oled.println(F("Camel Fighter")); break;
+          case 2: oled.println(F("P51 Fighter")); break;
         }
       }
       break;
@@ -411,7 +418,7 @@ void showConfigSummary() {
   oled.println(F("Config Summary:"));
   oled.println();
   oled.print(F("Model: "));
-  oled.println(config.modelType == PAPER_PLANE ? F("Paper Plane") : F("Camel Fighter"));
+  oled.println(config.modelType == PAPER_PLANE ? F("Paper Plane") : config.modelType == CAMEL_FIGHTER ? F("Camel Fighter") : F("P51 Fighter"));
   oled.print(F("Mix: "));
   oled.println(config.mixMode == MIXED ? F("Mixed") : F("Direct"));
   oled.print(F("CH1: "));
@@ -459,10 +466,19 @@ void loop() {
   int rssi = calculateRSSI();
 
   ControlData data;
+  // Set aircraft_type and flight_mode based on config/menu (example:)
+  data.aircraft_type = config.modelType; // Now maps directly to 0, 1, or 2
+  if (throttle == 0 && abs(pitchValue) < deadZone && abs(rollValue) < deadZone) {
+    data.flight_mode = FLIGHT_MODE_STABILIZE; // Auto stabilize when throttle is zero and no joystick input
+  } else {
+    data.flight_mode = FLIGHT_MODE_MANUAL;    // Manual mode otherwise
+  }
   data.throttle = throttle;
-  data.left_flap = left_flap;
-  data.right_flap = right_flap;
-  data.checksum = (data.throttle + data.left_flap + data.right_flap) % 256;
+  // Map left_flap/right_flap to ch1/ch2, ch3=0 for now
+  data.ch1 = left_flap;
+  data.ch2 = right_flap;
+  data.ch3 = 0; // If you have a third channel, set it here
+  data.checksum = (data.aircraft_type + data.flight_mode + data.throttle + data.ch1 + data.ch2 + data.ch3) % 256;
 
   if (!checkAction(data)){
     stillCount++;
@@ -504,25 +520,17 @@ void loop() {
 }
 
 boolean checkAction(ControlData &data){
-#ifdef DEBUG  
-  Serial.println(F(">>>>>"));
-  Serial.println( data.throttle -  lastData.throttle);
-  Serial.println( data.left_flap -  lastData.left_flap);
-  Serial.println( data.right_flap -  lastData.right_flap);
-  Serial.println(F("<<<<<"));
-#endif
-
-  // 使用更小的阈值，减少不必要的更新
   int throttleDiff = abs(lastData.throttle - data.throttle);
-  int leftDiff = abs(lastData.left_flap - data.left_flap);
-  int rightDiff = abs(lastData.right_flap - data.right_flap);
-  
-  if (throttleDiff < 3 && leftDiff < 3 && rightDiff < 3) {
-    return false;    
+  int ch1Diff = abs(lastData.ch1 - data.ch1);
+  int ch2Diff = abs(lastData.ch2 - data.ch2);
+  int ch3Diff = abs(lastData.ch3 - data.ch3);
+  if (throttleDiff < 3 && ch1Diff < 3 && ch2Diff < 3 && ch3Diff < 3) {
+    return false;
   } else {
     lastData.throttle = data.throttle;
-    lastData.left_flap = data.left_flap;
-    lastData.right_flap = data.right_flap;
+    lastData.ch1 = data.ch1;
+    lastData.ch2 = data.ch2;
+    lastData.ch3 = data.ch3;
     return true;
   }
 }
