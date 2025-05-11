@@ -94,6 +94,13 @@ const int MODEL_SELECT_ITEMS = 3;  // Paper Plane, Camel Fighter, P51 Fighter
 const int MIX_SELECT_ITEMS = 2;    // Mixed, Direct
 const int REVERSE_ITEMS = 2;       // Normal, Reversed
 
+// Add these variables at the top with other globals
+const int RSSI_HISTORY_SIZE = 10;
+int rssiHistory[RSSI_HISTORY_SIZE];
+int rssiHistoryIndex = 0;
+unsigned long lastRssiUpdate = 0;
+const unsigned long RSSI_UPDATE_INTERVAL = 100; // Update RSSI every 100ms
+
 // Menu system functions
 void handleMenuInput() {
   int ch1 = analogRead(A1);
@@ -306,6 +313,7 @@ void setup() {
   //无线模块自检
   Serial.println(F("开始初始化RF..."));
   initRF();
+  initRSSI();  // Initialize RSSI history
   Serial.println(F("RF初始化完成!"));
 
   // Run configuration menu
@@ -331,14 +339,24 @@ void shortBeep(){
 
 // OLED初始化
 void initOLED() {
-  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)){
-     Serial.println("oled failed!");
-     while(1);
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("OLED初始化失败!"));
+    while(1);
   }
-  Serial.println("oled inited");
+  
+  // 设置OLED显示参数
   oled.clearDisplay();
-  oled.setTextSize(2);
+  oled.setTextSize(1);
   oled.setTextColor(SSD1306_WHITE);
+  oled.setCursor(0, 0);
+  
+  // 设置显示方向
+  oled.setRotation(0);
+  
+  // 禁用滚动
+  oled.stopscroll();
+  
+  // 显示初始画面
   showText("Loading...");
 }
 
@@ -368,7 +386,7 @@ void initRF(){
   radio.setDataRate(RF24_250KBPS);  
   radio.setPALevel(RF24_PA_MAX);
   radio.openWritingPipe(address);
-  radio.setRetries(5, 15);        // 减少重试次数和延迟
+  radio.setRetries(3, 5);        // 减少重试次数和延迟
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
   radio.stopListening();
@@ -585,32 +603,110 @@ boolean beepForSendFailed(){
   return true;
 }
 
-// 修改显示函数，降低显示更新频率
+// 修改显示函数，优化显示更新逻辑
 void displayStatus(int rssi, int t, int left, int right) {
   static unsigned long lastDisplayUpdate = 0;
-  if (millis() - lastDisplayUpdate < 100) {  // 每100ms更新一次显示
+  static int lastRssi = 0;
+  static int lastT = 0;
+  static int lastLeft = 0;
+  static int lastRight = 0;
+  
+  // 检查是否需要更新显示
+  if (millis() - lastDisplayUpdate < 200) {  // 降低更新频率到200ms
     return;
   }
+  
+  // 检查数据是否发生变化
+  if (rssi == lastRssi && t == lastT && left == lastLeft && right == lastRight) {
+    return;
+  }
+  
+  // 更新上次显示的数据
+  lastRssi = rssi;
+  lastT = t;
+  lastLeft = left;
+  lastRight = right;
   lastDisplayUpdate = millis();
 
+  // 使用局部缓冲区
   oled.clearDisplay();
   
-  // 顶部状态栏
+  // 顶部状态栏 - 使用固定宽度格式化
   oled.setCursor(0, 0);
-  oled.print("SIG:"); oled.print(rssi); oled.print("%");
+  oled.print(F("SIG:"));
+  oled.print(rssi);
+  oled.print(F("%"));
 
-  // 通道数据显示
+  // 通道数据显示 - 使用固定宽度格式化
   oled.setCursor(0, 16);
-  oled.print("THR:"); oled.print(t); oled.println("%");
-  oled.print("CH1:"); oled.print(left); oled.println("%");
-  oled.print("CH2:"); oled.print(right); oled.println("%");
+  oled.print(F("THR:"));
+  oled.print(t);
+  oled.print(F("%"));
   
+  oled.setCursor(0, 32);
+  oled.print(F("CH1:"));
+  oled.print(left);
+  oled.print(F("%"));
+  
+  oled.setCursor(0, 48);
+  oled.print(F("CH2:"));
+  oled.print(right);
+  oled.print(F("%"));
+  
+  // 确保显示更新完成
   oled.display();
 }
 
 int calculateRSSI() {
-  uint8_t arc = radio.getARC();  // 获取自动重发次数（0-15）
-  return constrain(100 - (arc * 6), 0, 100); // 限制在0-100%
+  static int lastRssi = 50;  // 默认中间值
+  static unsigned long totalPackets = 0;  // 总数据包数
+  static unsigned long failedPackets = 0;  // 失败数据包数
+  
+  // 更新数据包统计
+  totalPackets++;
+  if (failedCount > 0) {
+    failedPackets++;
+  }
+  
+  // 计算丢包率(0-100%)
+  int packetLossRate = (totalPackets > 0) ? (failedPackets * 100 / totalPackets) : 0;
+  
+  // 获取自动重发计数(0-15)
+  uint8_t arc = radio.getARC();
+  
+  // 基于ARC计算基础RSSI(0-100%)
+  int arcRssi = constrain(100 - (arc * 6), 0, 100);
+  
+  // 使用加权平均计算最终RSSI
+  // ARC基础RSSI权重60%
+  // 丢包率权重40%
+  int currentRssi = (arcRssi * 60 + (100 - packetLossRate) * 40) / 100;
+  
+  // 使用移动平均进行平滑处理
+  rssiHistory[rssiHistoryIndex] = currentRssi;
+  rssiHistoryIndex = (rssiHistoryIndex + 1) % RSSI_HISTORY_SIZE;
+  
+  int smoothedRssi = 0;
+  for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
+    smoothedRssi += rssiHistory[i];
+  }
+  smoothedRssi /= RSSI_HISTORY_SIZE;
+  
+  // 定期重置统计数据
+  if (millis() - lastRssiUpdate > 5000) {  // 每5秒重置一次
+    totalPackets = 0;
+    failedPackets = 0;
+    lastRssiUpdate = millis();
+  }
+  
+  return smoothedRssi;
+}
+
+// 在setup()中添加RSSI历史记录初始化
+void initRSSI() {
+  for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
+    rssiHistory[i] = 50;  // 使用中间值初始化
+  }
 }
 
 // Configuration functions
