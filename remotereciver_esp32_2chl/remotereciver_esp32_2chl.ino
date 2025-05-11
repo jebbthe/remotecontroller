@@ -86,7 +86,7 @@ void initRF(){
   if (!radio.begin()){
     while(1);
   }  
-  
+  digitalWrite(PIN_LED, HIGH);
   radio.setChannel(108); 
   radio.setDataRate(RF24_250KBPS);
   radio.openReadingPipe(0, address);
