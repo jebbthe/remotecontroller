@@ -37,12 +37,12 @@ struct PIDParams {
   float max_i; // 积分限幅
 };
 
-// 纸飞机PID参数
+// 纸飞机PID参数 - 降低PID参数以减少抖动
 const PIDParams PAPER_PLANE_PID = {
-  .kp = 2.0,
-  .ki = 0.1,
-  .kd = 1.0,
-  .max_i = 100
+  .kp = 0.8,    // 降低比例增益
+  .ki = 0.02,   // 降低积分增益
+  .kd = 0.5,    // 降低微分增益
+  .max_i = 50   // 降低积分限幅
 };
 
 // 骆驼战斗机PID参数
@@ -117,6 +117,9 @@ const byte address[6] = "FLY01";
 struct MPUData {
   float accX, accY, accZ;    // 加速度计数据
   float gyroX, gyroY, gyroZ; // 陀螺仪数据
+  float gyroX_offset = 0;    // 陀螺仪X轴零偏
+  float gyroY_offset = 0;    // 陀螺仪Y轴零偏
+  float gyroZ_offset = 0;    // 陀螺仪Z轴零偏
   float pitch, roll;         // 俯仰角和横滚角
 };
 
@@ -128,6 +131,13 @@ float lastPitchError = 0, lastRollError = 0;   // 上一次误差
 // 姿态保持目标值
 float targetPitch = 0;
 float targetRoll = 0;
+
+// 全局变量
+static float lastPitch = 0.0;
+static float lastRoll = 0.0;
+static uint32_t lastUpdateTime = 0;
+
+static float filteredGyroX = 0, filteredGyroY = 0;
 
 void initMPU6500() {
   Wire.begin();
@@ -156,37 +166,133 @@ void initMPU6500() {
 }
 
 void readMPU6500() {
+  // 读取原始传感器数据
   Wire.beginTransmission(MPU6500_ADDR);
   Wire.write(ACCEL_XOUT_H);
   Wire.endTransmission(false);
   Wire.requestFrom(MPU6500_ADDR, 14, true);
   
-  // 读取加速度计数据
+  // 读取加速度计数据 (单位: g)
   mpuData.accX = (Wire.read() << 8 | Wire.read()) / 2048.0;
   mpuData.accY = (Wire.read() << 8 | Wire.read()) / 2048.0;
   mpuData.accZ = (Wire.read() << 8 | Wire.read()) / 2048.0;
   
-  // 读取温度（未使用）
+  // 跳过温度数据
   Wire.read(); Wire.read();
   
-  // 读取陀螺仪数据
+  // 读取陀螺仪数据 (单位: °/s)
   mpuData.gyroX = (Wire.read() << 8 | Wire.read()) / 16.4;
   mpuData.gyroY = (Wire.read() << 8 | Wire.read()) / 16.4;
   mpuData.gyroZ = (Wire.read() << 8 | Wire.read()) / 16.4;
   
-  // 计算角度
-  mpuData.pitch = atan2(mpuData.accY, sqrt(mpuData.accX * mpuData.accX + mpuData.accZ * mpuData.accZ)) * 180 / PI;
-  mpuData.roll = atan2(-mpuData.accX, mpuData.accZ) * 180 / PI;
+  // 应用校准偏移
+  mpuData.gyroX -= mpuData.gyroX_offset;
+  mpuData.gyroY -= mpuData.gyroY_offset;
+  mpuData.gyroZ -= mpuData.gyroZ_offset;
+  
+  // 计算时间增量 (单位: 秒)
+  uint32_t currentTime = micros();
+  float dt = (currentTime - lastUpdateTime) / 1000000.0;
+  lastUpdateTime = currentTime;
+  
+  // 设置最小时间阈值防止除零
+  if (dt <= 0) dt = 0.001;
+  
+  // === 1. 加速度计姿态计算 ===
+  // 俯仰角 (绕Y轴旋转) - 使用改进公式避免万向锁问题
+  float pitchAcc = atan2(-mpuData.accX, 
+                      copysignf(sqrtf(mpuData.accY*mpuData.accY + 
+                                  mpuData.accZ*mpuData.accZ), 
+                              mpuData.accZ)) * 180 / PI;
+  
+  // 横滚角 (绕X轴旋转) - 注意Y轴方向处理
+  // 修正：添加负号以符合航空标准（右滚为正）
+  float rollAcc = atan2(-mpuData.accY,  // 关键修正：添加负号
+                     copysignf(sqrtf(mpuData.accX*mpuData.accX + 
+                                 mpuData.accZ*mpuData.accZ), 
+                             mpuData.accZ)) * 180 / PI;
+  
+  
+  // === 2. 陀螺仪数据处理 ===
+  // 根据实际测试结果修正方向：
+  // - 抬头运动：+gyroY → 俯仰角速度应为正
+  // - 右滚运动：-gyroX → 横滚角速度应为正
+  const float gyroFilterFactor = 0.2; // 滤波系数
+  filteredGyroX = gyroFilterFactor * mpuData.gyroX + (1 - gyroFilterFactor) * filteredGyroX;
+  filteredGyroY = gyroFilterFactor * mpuData.gyroY + (1 - gyroFilterFactor) * filteredGyroY;
+
+  // 使用滤波后的数据
+  float gyroPitchRate = -filteredGyroY;
+  float gyroRollRate = filteredGyroX;
+  
+  // 陀螺仪积分计算
+  float pitchGyro = lastPitch + gyroPitchRate * dt;
+  float rollGyro = lastRoll + gyroRollRate * dt;
+  
+  // === 3. 互补滤波融合 ===
+  const float alpha = 0.96;  // 陀螺仪权重
+  
+  mpuData.pitch = alpha * pitchGyro + (1 - alpha) * pitchAcc;
+  mpuData.roll = alpha * rollGyro + (1 - alpha) * rollAcc;
+
+  if (isnan(mpuData.pitch) || abs(mpuData.pitch) > 180.0f) {
+    mpuData.pitch = lastPitch; // 使用上次有效值
+  }
+  if (isnan(mpuData.roll) || abs(mpuData.roll) > 180.0f) {
+    mpuData.roll = lastRoll;
+  } 
+  // 在互补滤波后添加角度约束
+  mpuData.pitch = constrain(mpuData.pitch, -89.9, 89.9);
+  mpuData.roll = constrain(mpuData.roll, -89.9, 89.9);
+
+  // 保存当前角度用于下一次计算
+  lastPitch = mpuData.pitch;
+  lastRoll = mpuData.roll;
+  
+  // 调试输出
+  Serial.print("Pitch: ");
+  Serial.print(mpuData.pitch);
+  Serial.print("°, Roll: ");
+  Serial.print(mpuData.roll);
+  Serial.print("° | Gyro: PitchRate=");
+  Serial.print(gyroPitchRate);
+  Serial.print("°/s, RollRate=");
+  Serial.print(gyroRollRate);
+  Serial.println("°/s");
 }
 
 void stabilizeFlight(ControlData data) {
+  return;
   // 计算误差
   pitchError = -mpuData.pitch;  // 取负值是因为需要向相反方向修正
   rollError = -mpuData.roll;
   
+  // 调试模式：直接映射传感器数据到舵机
+  if(data.aircraft_type == AIRCRAFT_PAPER_PLANE) {
+    // 将pitch和roll数据映射到舵机角度范围
+    // pitch范围：-90到90度，映射到45-135度
+    // roll范围：-90到90度，映射到45-135度
+    
+    // 计算舵机位置
+    // 左舵机：pitch控制，向上为正
+    int leftServo = 90 + (mpuData.pitch * 0.5);  // 0.5是缩放因子，限制舵机运动范围
+    leftServo = constrain(leftServo, 45, 135);   // 限制在有效范围内
+    
+    // 右舵机：roll控制，向右为正
+    int rightServo = 90 + (mpuData.roll * 0.5);  // 0.5是缩放因子，限制舵机运动范围
+    rightServo = constrain(rightServo, 45, 135); // 限制在有效范围内
+    
+    // 应用舵机位置
+    ch1.write(leftServo);
+    ch2.write(rightServo);
+    
+    return;  // 调试模式下不执行PID控制
+  }
+  
+  // 以下是正常的PID控制逻辑
   // 死区控制
-  if(abs(pitchError) < DEADBAND_PITCH) pitchError = 0;
-  if(abs(rollError) < DEADBAND_ROLL) rollError = 0;
+  if(abs(pitchError) < DEADBAND_PITCH * 2) pitchError = 0;
+  if(abs(rollError) < DEADBAND_ROLL * 2) rollError = 0;
   
   // 获取当前机型的PID参数
   PIDParams pid;
@@ -206,7 +312,7 @@ void stabilizeFlight(ControlData data) {
       break;
   }
   
-  // 计算积分项
+  // 计算积分项 - 添加积分限幅
   pitchIntegral += pitchError;
   rollIntegral += rollError;
   
@@ -214,43 +320,57 @@ void stabilizeFlight(ControlData data) {
   pitchIntegral = constrain(pitchIntegral, -pid.max_i, pid.max_i);
   rollIntegral = constrain(rollIntegral, -pid.max_i, pid.max_i);
   
-  // 计算PID输出
+  // 计算PID输出 - 添加输出限幅
   float pitchOutput = pid.kp * pitchError + pid.ki * pitchIntegral + pid.kd * (pitchError - lastPitchError);
   float rollOutput = pid.kp * rollError + pid.ki * rollIntegral + pid.kd * (rollError - lastRollError);
+  
+  // 限制PID输出范围
+  pitchOutput = constrain(pitchOutput, -20.0, 20.0);
+  rollOutput = constrain(rollOutput, -20.0, 20.0);
   
   // 更新上一次误差
   lastPitchError = pitchError;
   lastRollError = rollError;
   
-  // 将修正值应用到舵机
-  int currentCh2 = ch2.read();
+  // 获取当前舵机位置
   int currentCh1 = ch1.read();
+  int currentCh2 = ch2.read();
   
-  // 声明所有可能用到的变量
-  float leftWing = 0;
-  float rightWing = 0;
-  
-  // 根据不同机型应用舵机混合控制
+  // 根据不同机型应用舵机控制
   switch(data.aircraft_type) {
-    case AIRCRAFT_PAPER_PLANE:
-      // 纸飞机：混合控制
-      leftWing = currentCh1 - (rollOutput * mix.roll) + (pitchOutput * mix.pitch);
-      rightWing = currentCh2 + (rollOutput * mix.roll) + (pitchOutput * mix.pitch);
-      ch1.write(constrain(leftWing, 45, 135));
-      ch2.write(constrain(rightWing, 45, 135));
-      break;
+    case AIRCRAFT_PAPER_PLANE: {
+      // 纸飞机：对称控制俯仰，差动控制横滚
+      // 计算目标舵机位置
+      float leftTarget = 90.0 + (pitchOutput * mix.pitch) - (rollOutput * mix.roll);
+      float rightTarget = 90.0 + (pitchOutput * mix.pitch) + (rollOutput * mix.roll);
       
-    case AIRCRAFT_CAMEL:
+      // 限制输出范围
+      leftTarget = constrain(leftTarget, 45.0, 135.0);
+      rightTarget = constrain(rightTarget, 45.0, 135.0);
+      
+      // 平滑过渡到目标位置 - 减小步进比例
+      float leftStep = (leftTarget - currentCh1) * 0.15;  // 降低到15%的步进
+      float rightStep = (rightTarget - currentCh2) * 0.15;
+      
+      // 应用新的舵机位置
+      ch1.write(currentCh1 + leftStep);
+      ch2.write(currentCh2 + rightStep);
+      break;
+    }
+      
+    case AIRCRAFT_CAMEL: {
       // 骆驼战斗机：独立控制
       ch1.write(constrain(currentCh1 + (pitchOutput * mix.pitch), 45, 135));
       ch2.write(constrain(currentCh2 + (rollOutput * mix.roll), 45, 135));
       break;
+    }
       
-    case AIRCRAFT_P51:
+    case AIRCRAFT_P51: {
       // P51：标准控制
       ch2.write(constrain(currentCh2 + pitchOutput, 45, 135));
       ch1.write(constrain(currentCh1 + rollOutput, 45, 135));
       break;
+    }
   }
 }
 
@@ -274,21 +394,134 @@ void setup() {
   digitalWrite(PIN_LED, HIGH);
   showLight();
 
-  // 上电安全检测
-  esc.writeMicroseconds(2000); // 电调解锁前满油门
-  Serial.println("满油门...");
-  delay(2000);
-
-  esc.writeMicroseconds(1000); // 电调解锁前零油门
-  Serial.println("零油门...");
-  delay(2000);
-
-  Serial.println("电调校准完成...");
+  // 安全解锁流程
+  Serial.println(F("等待解锁确认..."));
+  Serial.println(F("请将油门摇杆推到最低位置"));
   
+  // 等待接收机收到信号并确认油门在最低位置
+  bool throttleConfirmed = false;
+  unsigned long startTime = millis();
+  
+  while (!throttleConfirmed && (millis() - startTime < 60000)) { // 10秒超时
+    if(radio.available()) {
+      ControlData data;
+      radio.read(&data, sizeof(data));
+      uint8_t sum = (data.aircraft_type + data.flight_mode + data.throttle + data.ch1 + data.ch2 + data.ch3) % 256;
+      if(sum == data.checksum) {
+        // 检查油门是否在最低位置（小于200）
+        if(data.throttle < 200) {
+          throttleConfirmed = true;
+          Serial.println(F("油门位置确认，开始解锁流程"));
+          
+          // 执行解锁序列
+          esc.writeMicroseconds(1000); // 确保零油门
+          delay(2000);
+          
+          // 快速闪烁LED表示正在解锁
+          for(int i = 0; i < 5; i++) {
+            digitalWrite(PIN_LED, HIGH);
+            delay(100);
+            digitalWrite(PIN_LED, LOW);
+            delay(100);
+          }
+          
+          Serial.println(F("电调解锁完成"));
+        } else {
+          Serial.println(F("请将油门摇杆推到最低位置"));
+        }
+      }
+    }
+    delay(100);
+  }
+  
+  if (!throttleConfirmed) {
+    Serial.println(F("解锁超时，请检查遥控器连接"));
+    // 进入安全模式
+    esc.writeMicroseconds(1000);
+    while(1) {
+      digitalWrite(PIN_LED, HIGH);
+      delay(100);
+      digitalWrite(PIN_LED, LOW);
+      delay(100);
+    }
+  }
+
+  Serial.println(F("开始自检"));
   selfCheck();
+  
+  Serial.println(F("开始初始化MPU6500"));
   initMPU6500();
+  
+  calibrateGyro();
+  
+  lastUpdateTime = micros();
+
+  // 初始化角度为0
+  lastPitch = 0;
+  lastRoll = 0;
+  
+  // 读取一次传感器数据
+  readMPU6500();
 }
 
+// 改进的陀螺仪校准
+void calibrateGyro() {
+  float gx = 0, gy = 0, gz = 0;
+  float ax = 0, ay = 0, az = 0;
+  const int samples = 500;
+  
+  Serial.println(F("开始陀螺仪校准..."));
+  Serial.println(F("请保持设备完全静止"));
+  
+  for(int i=0; i<samples; i++) {
+    // 读取完整传感器数据
+    Wire.beginTransmission(MPU6500_ADDR);
+    Wire.write(ACCEL_XOUT_H);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU6500_ADDR, 14, true);
+    
+    // 读取加速度计数据
+    ax += (Wire.read() << 8 | Wire.read()) / 2048.0;
+    ay += (Wire.read() << 8 | Wire.read()) / 2048.0;
+    az += (Wire.read() << 8 | Wire.read()) / 2048.0;
+    
+    // 跳过温度数据
+    Wire.read(); Wire.read();
+    
+    // 读取陀螺仪数据
+    int16_t gx_raw = Wire.read() << 8 | Wire.read();
+    int16_t gy_raw = Wire.read() << 8 | Wire.read();
+    int16_t gz_raw = Wire.read() << 8 | Wire.read();
+    
+    gx += gx_raw / 16.4;
+    gy += gy_raw / 16.4;
+    gz += gz_raw / 16.4;
+    
+    // 进度指示
+    if (i % 50 == 0) {
+      digitalWrite(PIN_LED, !digitalRead(PIN_LED));
+    }
+    delay(10);
+  }
+  
+  // 验证加速度计数据（应接近重力加速度）
+  float accMagnitude = sqrt(ax*ax + ay*ay + az*az) / samples;
+  if (abs(accMagnitude - 1.0) > 0.2) {
+    Serial.println(F("警告：校准过程中设备移动！"));
+  }
+  
+  mpuData.gyroX_offset = gx/samples;
+  mpuData.gyroY_offset = gy/samples;
+  mpuData.gyroZ_offset = gz/samples;
+  
+  Serial.print("陀螺仪校准完成: ");
+  Serial.print(mpuData.gyroX_offset, 4); 
+  Serial.print(", ");
+  Serial.print(mpuData.gyroY_offset, 4);
+  Serial.print(", ");
+  Serial.println(mpuData.gyroZ_offset, 4);
+  digitalWrite(PIN_LED, LOW);
+}
 
 void initController(){
   esc.attach(PIN_ESC, 1000, 2000);   // 电调初始化
@@ -373,8 +606,8 @@ void loop() {
       switch(data.aircraft_type) {
         case AIRCRAFT_PAPER_PLANE:
           // 纸飞机：只使用ch1和ch2
-          ch1.write(map(data.ch1, -512, 511, 45, 135));  // 左翼
-          ch2.write(map(data.ch2, -512, 511, 45, 135));  // 右翼
+          ch1.write(map(data.ch1, -512, 511, 45, 135));  // 左翼，舵机安装方向，所以方向映射
+          ch2.write(map(data.ch2, -512, 511, 135, 45));  // 右翼
           ch3.write(90);  // 保持中立
           break;
           

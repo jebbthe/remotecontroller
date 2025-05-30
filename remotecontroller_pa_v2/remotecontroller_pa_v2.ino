@@ -390,9 +390,9 @@ void initRF(){
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
   radio.stopListening();
-#ifdef DEBUG
-  radio.printDetails();
-#endif
+// #ifdef DEBUG
+//   radio.printDetails();
+// #endif
 }
 
 void beepForRFFail(){
@@ -518,6 +518,17 @@ void loop() {
                map(left_flap, FLAP_MIN, FLAP_MAX, -100, 100),
                map(right_flap, FLAP_MIN, FLAP_MAX, -100, 100));
 
+#ifdef DEBUG
+    Serial.println(F("Sending ControlData:"));
+    Serial.print(F("  Aircraft Type: ")); Serial.println(data.aircraft_type);
+    Serial.print(F("  Flight Mode: ")); Serial.println(data.flight_mode);
+    Serial.print(F("  Throttle: ")); Serial.println(data.throttle);
+    Serial.print(F("  CH1: ")); Serial.println(data.ch1);
+    Serial.print(F("  CH2: ")); Serial.println(data.ch2);
+    Serial.print(F("  CH3: ")); Serial.println(data.ch3);
+    Serial.print(F("  Checksum: ")); Serial.println(data.checksum);
+#endif
+
     if (radio.write(&data, sizeof(data))){
       failedCount = 0;
       Serial.println(F("发送数据成功"));
@@ -527,9 +538,9 @@ void loop() {
     } else {
       failedCount ++;
       Serial.println(F("发送数据失败"));
-#ifdef DEBUG
-      radio.printDetails();
-#endif    
+// #ifdef DEBUG
+//       radio.printDetails();
+// #endif    
       if (!beepForSendFailed()){
         delayForNextSend();
       }
