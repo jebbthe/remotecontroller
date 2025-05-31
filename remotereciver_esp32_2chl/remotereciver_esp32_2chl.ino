@@ -6,6 +6,7 @@
 
 // MPU6500 I2C地址
 #define MPU6500_ADDR 0x68
+//#define ENABLE_SELFCTL 1
 
 // MPU6500寄存器映射
 #define PWR_MGMT_1   0x6B
@@ -307,29 +308,6 @@ void readMPU6500() {
   // 保存当前角度用于下一次计算
   lastPitch = mpuData.pitch;
   lastRoll = mpuData.roll;
-  
-  // 调试输出
-  /*
-  Serial.print("Raw Acc: X=");
-  Serial.print(mpuData.accX);
-  Serial.print("g, Y=");
-  Serial.print(mpuData.accY);
-  Serial.print("g, Z=");
-  Serial.print(mpuData.accZ);
-  Serial.print("g | Raw Gyro: X=");
-  Serial.print(mpuData.gyroX);
-  Serial.print("°/s, Y=");
-  Serial.print(mpuData.gyroY);
-  Serial.print("°/s | Pitch: ");
-  Serial.print(mpuData.pitch);
-  Serial.print("°, Roll: ");
-  Serial.print(mpuData.roll);
-  Serial.print("° | Gyro: PitchRate=");
-  Serial.print(gyroPitchRate);
-  Serial.print("°/s, RollRate=");
-  Serial.print(gyroRollRate);
-  Serial.println("°/s");
-  */
 }
 
 void stabilizeFlight(ControlData data) {
@@ -627,10 +605,9 @@ void initRF(){
   radio.setDataRate(RF24_250KBPS);
   radio.openReadingPipe(0, address);
   radio.setPALevel(RF24_PA_MAX);
-  radio.setAutoAck(true); // 默认启用
-  radio.setRetries(5, 15); // 延迟=250μs*5, 重试15次
-  radio.setCRCLength(RF24_CRC_16);
-  //radio.printDetails();
+  radio.setAutoAck(true);
+  radio.setRetries(2, 3);  
+  radio.setCRCLength(RF24_CRC_16);  
   radio.startListening();
 }
 
@@ -701,6 +678,7 @@ void loop() {
       }
       
       // 飞行模式处理
+#ifdef ENABLE_SELFCTL      
       switch(data.flight_mode) {
         case FLIGHT_MODE_STABILIZE:
           readMPU6500();
@@ -712,13 +690,14 @@ void loop() {
           stabilizeFlight(data);
           break;
       }
+#endif      
     } 
   } else {  
     digitalWrite(PIN_LED, LOW);  
   }  
   
-  // 失控保护（2秒无信号切断油门）
-  if(millis() - lastSignalTime > 2000) {
+  // 失控保护（1.5秒无信号切断油门）- 减少保护时间
+  if(millis() - lastSignalTime > 1500) {
     esc.writeMicroseconds(1000);      // 紧急停机
     ch1.write(90);                // 回中
     ch2.write(90);
