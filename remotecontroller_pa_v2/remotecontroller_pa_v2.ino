@@ -425,6 +425,11 @@ void showText(const char* str){
     oled.display();
 }
 
+// 添加LED状态控制变量
+unsigned long lastLedOnTime = 0;
+const unsigned long LED_ON_DURATION = 100;  // LED亮起持续时间(ms)
+bool ledState = false;
+
 void showReady(){
   showText("Hello Baby");
   digitalWrite(PIN_SIG_LED, HIGH);
@@ -540,17 +545,25 @@ void loop() {
     if (radio.write(&data, sizeof(data))){
       failedCount = 0;
       Serial.println(F("发送数据成功"));
+      // 更新LED状态和时间
+      ledState = true;
+      lastLedOnTime = millis();
       digitalWrite(PIN_SIG_LED, HIGH);
       delayForNextSend();
-      digitalWrite(PIN_SIG_LED, LOW);
     } else {
-      failedCount ++;
+      failedCount++;
       Serial.println(F("发送数据失败"));
  #ifdef DEBUG
       radio.printDetails();
  #endif    
       delayForNextSend();
-    } 
+    }
+
+    // 检查是否需要关闭LED
+    if (ledState && (millis() - lastLedOnTime >= LED_ON_DURATION)) {
+      ledState = false;
+      digitalWrite(PIN_SIG_LED, LOW);
+    }
   }
 }
 
