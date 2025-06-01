@@ -606,7 +606,7 @@ void initRF(){
   radio.openReadingPipe(0, address);
   radio.setPALevel(RF24_PA_MAX);
   radio.setAutoAck(true);
-  radio.setRetries(2, 3);  
+  radio.setRetries(0, 0);  
   radio.setCRCLength(RF24_CRC_16);  
   radio.startListening();
 }

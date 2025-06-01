@@ -28,7 +28,6 @@ RF24 radio(CE_P, CSN_P);
 const byte address[6] = "FLY01";
 const int deadZone = 20;
 
-unsigned long lastAlertTime = 0;
 unsigned long failedCount = 0;
 const unsigned long ALERT_LIMIT = 250;
 
@@ -94,12 +93,21 @@ const int MODEL_SELECT_ITEMS = 3;  // Paper Plane, Camel Fighter, P51 Fighter
 const int MIX_SELECT_ITEMS = 2;    // Mixed, Direct
 const int REVERSE_ITEMS = 2;       // Normal, Reversed
 
-// Add these variables at the top with other globals
+// RSSI相关常量和变量
 const int RSSI_HISTORY_SIZE = 10;
 int rssiHistory[RSSI_HISTORY_SIZE];
 int rssiHistoryIndex = 0;
 unsigned long lastRssiUpdate = 0;
-const unsigned long RSSI_UPDATE_INTERVAL = 100; // Update RSSI every 100ms
+const unsigned long RSSI_UPDATE_INTERVAL = 100; // 每100ms更新一次RSSI
+const unsigned long RSSI_RESET_INTERVAL = 5000; // 每5秒重置统计数据
+
+// 统计数据
+struct RSSIStats {
+  unsigned long totalPackets;
+  unsigned long failedPackets;
+  unsigned long lastUpdate;
+  unsigned long lastReset;
+} rssiStats = {0, 0, 0, 0};
 
 // Menu system functions
 void handleMenuInput() {
@@ -386,13 +394,13 @@ void initRF(){
   radio.setDataRate(RF24_250KBPS);  
   radio.setPALevel(RF24_PA_MAX);
   radio.openWritingPipe(address);
-  radio.setRetries(3, 5);        // 减少重试次数和延迟
+  radio.setRetries(0, 0);
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
   radio.stopListening();
-// #ifdef DEBUG
-//   radio.printDetails();
-// #endif
+ #ifdef DEBUG
+   radio.printDetails();
+ #endif
 }
 
 void beepForRFFail(){
@@ -538,12 +546,10 @@ void loop() {
     } else {
       failedCount ++;
       Serial.println(F("发送数据失败"));
-// #ifdef DEBUG
-//       radio.printDetails();
-// #endif    
-      if (!beepForSendFailed()){
-        delayForNextSend();
-      }
+ #ifdef DEBUG
+      radio.printDetails();
+ #endif    
+      delayForNextSend();
     } 
   }
 }
@@ -596,22 +602,8 @@ void delayForNextSend(){
 #endif    
 }
 
-boolean beepForSendFailed(){
-  if (failedCount < ALERT_LIMIT){
-    return false;
-  }
-  unsigned long now = millis();
-  if (now - lastAlertTime < 3000){
-    return false;
-  }
-  lastAlertTime = now;
-  for (int i=0;i<3;i++){
-    digitalWrite(PIN_BEEP, HIGH);
-    delay(150);
-    digitalWrite(PIN_BEEP, LOW);
-    delay(150);
-  }
-  return true;
+boolean checkSigFailed(){
+  return (failedCount > ALERT_LIMIT);
 }
 
 // 修改显示函数，优化显示更新逻辑
@@ -647,6 +639,9 @@ void displayStatus(int rssi, int t, int left, int right) {
   oled.print(F("SIG:"));
   oled.print(rssi);
   oled.print(F("%"));
+  if (checkSigFailed()){
+    oled.print(F("(!)"));
+  }
 
   // 通道数据显示 - 使用固定宽度格式化
   oled.setCursor(0, 16);
@@ -669,34 +664,55 @@ void displayStatus(int rssi, int t, int left, int right) {
 }
 
 int calculateRSSI() {
-  static int lastRssi = 50;  // 默认中间值
-  static unsigned long totalPackets = 0;  // 总数据包数
-  static unsigned long failedPackets = 0;  // 失败数据包数
+  unsigned long now = millis();
+  
+  // 检查是否需要更新RSSI
+  if (now - rssiStats.lastUpdate < RSSI_UPDATE_INTERVAL) {
+    return rssiHistory[(rssiHistoryIndex - 1 + RSSI_HISTORY_SIZE) % RSSI_HISTORY_SIZE];
+  }
+  rssiStats.lastUpdate = now;
   
   // 更新数据包统计
-  totalPackets++;
+  rssiStats.totalPackets++;
   if (failedCount > 0) {
-    failedPackets++;
+    rssiStats.failedPackets++;
   }
   
   // 计算丢包率(0-100%)
-  int packetLossRate = (totalPackets > 0) ? (failedPackets * 100 / totalPackets) : 0;
+  int packetLossRate = 0;
+  if (rssiStats.totalPackets > 0) {
+    packetLossRate = (rssiStats.failedPackets * 100) / rssiStats.totalPackets;
+  }
   
   // 获取自动重发计数(0-15)
   uint8_t arc = radio.getARC();
   
   // 基于ARC计算基础RSSI(0-100%)
+  // 由于关闭了重试，ARC应该总是0，但我们保留这个计算以防将来启用重试
   int arcRssi = constrain(100 - (arc * 6), 0, 100);
   
-  // 使用加权平均计算最终RSSI
-  // ARC基础RSSI权重60%
-  // 丢包率权重40%
-  int currentRssi = (arcRssi * 60 + (100 - packetLossRate) * 40) / 100;
+  // 计算当前RSSI
+  // 主要基于丢包率，因为关闭了重试机制
+  int currentRssi;
+  if (packetLossRate <= 5) {
+    currentRssi = 100;  // 丢包率<5%，信号极好
+  } else if (packetLossRate <= 20) {
+    currentRssi = 80;   // 丢包率5-20%，信号良好
+  } else if (packetLossRate <= 40) {
+    currentRssi = 60;   // 丢包率20-40%，信号一般
+  } else if (packetLossRate <= 60) {
+    currentRssi = 40;   // 丢包率40-60%，信号较差
+  } else if (packetLossRate <= 80) {
+    currentRssi = 20;   // 丢包率60-80%，信号差
+  } else {
+    currentRssi = 0;    // 丢包率>80%，信号极差
+  }
   
   // 使用移动平均进行平滑处理
   rssiHistory[rssiHistoryIndex] = currentRssi;
   rssiHistoryIndex = (rssiHistoryIndex + 1) % RSSI_HISTORY_SIZE;
   
+  // 计算平滑后的RSSI
   int smoothedRssi = 0;
   for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
     smoothedRssi += rssiHistory[i];
@@ -704,10 +720,10 @@ int calculateRSSI() {
   smoothedRssi /= RSSI_HISTORY_SIZE;
   
   // 定期重置统计数据
-  if (millis() - lastRssiUpdate > 5000) {  // 每5秒重置一次
-    totalPackets = 0;
-    failedPackets = 0;
-    lastRssiUpdate = millis();
+  if (now - rssiStats.lastReset > RSSI_RESET_INTERVAL) {
+    rssiStats.totalPackets = 0;
+    rssiStats.failedPackets = 0;
+    rssiStats.lastReset = now;
   }
   
   return smoothedRssi;
@@ -715,9 +731,16 @@ int calculateRSSI() {
 
 // 在setup()中添加RSSI历史记录初始化
 void initRSSI() {
+  // 初始化RSSI历史记录
   for (int i = 0; i < RSSI_HISTORY_SIZE; i++) {
     rssiHistory[i] = 50;  // 使用中间值初始化
   }
+  
+  // 初始化统计数据
+  rssiStats.totalPackets = 0;
+  rssiStats.failedPackets = 0;
+  rssiStats.lastUpdate = 0;
+  rssiStats.lastReset = 0;
 }
 
 // Configuration functions
