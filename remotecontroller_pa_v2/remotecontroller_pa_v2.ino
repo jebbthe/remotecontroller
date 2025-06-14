@@ -310,7 +310,6 @@ void setup() {
   Serial.println(F("开始初始化系统..."));
   Serial.println(F("开始初始化nano管脚..."));
   initPin();
-  shortBeep();
   Serial.println(F("管脚设置完成!"));
 
   //初始化OLED
@@ -392,12 +391,12 @@ void initRF(){
 
   radio.setChannel(108); 
   radio.setDataRate(RF24_250KBPS);  
+  radio.stopListening();
   radio.setPALevel(RF24_PA_MAX);
   radio.openWritingPipe(address);
   radio.setRetries(0, 0);
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
-  radio.stopListening();
  #ifdef DEBUG
    radio.printDetails();
  #endif
