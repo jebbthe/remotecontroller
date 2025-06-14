@@ -307,16 +307,16 @@ void setup() {
   Serial.begin(9600);
   printf_begin();
 
-
   Serial.println(F("开始初始化系统..."));
+  Serial.println(F("开始初始化nano管脚..."));
+  initPin();
+  shortBeep();
+  Serial.println(F("管脚设置完成!"));
+
   //初始化OLED
   Serial.println(F("开始初始化OLED..."));
   initOLED();
   Serial.println(F("OLED初始化完成!"));
-
-  Serial.println(F("开始初始化nano管脚..."));
-  initPin();
-  Serial.println(F("管脚设置完成!"));
 
   //无线模块自检
   Serial.println(F("开始初始化RF..."));
