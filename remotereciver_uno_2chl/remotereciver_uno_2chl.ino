@@ -1,4 +1,5 @@
 #include <SPI.h>
+#include <nRF24L01.h>
 #include <RF24.h>
 #include <Servo.h>
 #include <Wire.h>
@@ -80,13 +81,13 @@ const ServoMix CAMEL_MIX = {
 };
 
 // Arduino Uno引脚定义
-#define CE_PIN   9    // RF24 CE引脚
-#define CSN_PIN  10   // RF24 CSN引脚
-#define PIN_LED  13   // 板载LED
+#define CE_PIN   7    // RF24 CE引脚
+#define CSN_PIN  8   // RF24 CSN引脚
+#define PIN_LED  2   // 板载LED
 #define PIN_ESC  3    // 电调
 #define PIN_ch1  5    // 通道1
 #define PIN_ch2  6    // 通道2
-#define PIN_ch3  11   // 通道3
+#define PIN_ch3  4    // 通道3
 
 //无线模块
 RF24 radio(CE_PIN, CSN_PIN); 
