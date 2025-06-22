@@ -401,7 +401,7 @@ void initRF(){
    radio.printDetails();
  #endif
 }
-
+/*  */
 void beepForRFFail(){
   for (int i=0;i<3;i++){
     digitalWrite(PIN_BEEP, HIGH);
