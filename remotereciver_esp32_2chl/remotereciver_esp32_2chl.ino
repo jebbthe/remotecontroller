@@ -426,10 +426,10 @@ void setup() {
   printf_begin();
 
   pinMode(PIN_LED, OUTPUT);
+  digitalWrite(PIN_LED, LOW);
 
   initController();
   initRF();
-  digitalWrite(PIN_LED, HIGH);
   showLight();
 
   // 安全解锁流程
@@ -486,20 +486,19 @@ void setup() {
 
   Serial.println(F("开始自检"));
   selfCheck();
-  
+
+#ifdef ENABLE_SELFCTL  
   Serial.println(F("开始初始化MPU6500"));
   initMPU6500();
-  
   calibrateGyro();
-  
   lastUpdateTime = micros();
-
   // 初始化角度为0
   lastPitch = 0;
   lastRoll = 0;
   
   // 读取一次传感器数据
   readMPU6500();
+#endif
 }
 
 // 改进的陀螺仪校准
