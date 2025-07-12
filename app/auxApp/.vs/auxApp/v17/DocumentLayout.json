@@ -1,0 +1,104 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|c:\\users\\jebbt\\documents\\gitroot\\remotecontroller\\app\\auxapp\\auxapp\\mainform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|solutionrelative:auxapp\\mainform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|c:\\users\\jebbt\\documents\\gitroot\\remotecontroller\\app\\auxapp\\auxapp\\mainform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|solutionrelative:auxapp\\mainform.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|c:\\users\\jebbt\\documents\\gitroot\\remotecontroller\\app\\auxapp\\auxapp\\mainform.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|solutionrelative:auxapp\\mainform.designer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|c:\\users\\jebbt\\documents\\gitroot\\remotecontroller\\app\\auxapp\\auxapp\\flightsimulatorpanel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|solutionrelative:auxapp\\flightsimulatorpanel.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|c:\\users\\jebbt\\documents\\gitroot\\remotecontroller\\app\\auxapp\\auxapp\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{CEDF7054-8E2F-4040-99D1-0277B61E4420}|auxApp\\auxApp.csproj|solutionrelative:auxapp\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 4,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "MainForm.cs [\u8BBE\u8BA1]",
+              "DocumentMoniker": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\MainForm.cs",
+              "RelativeDocumentMoniker": "auxApp\\MainForm.cs",
+              "ToolTip": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\MainForm.cs [\u8BBE\u8BA1]",
+              "RelativeToolTip": "auxApp\\MainForm.cs [\u8BBE\u8BA1]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-12T14:06:44.198Z",
+              "EditorCaption": " [\u8BBE\u8BA1]"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "MainForm.Designer.cs",
+              "DocumentMoniker": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\MainForm.Designer.cs",
+              "RelativeDocumentMoniker": "auxApp\\MainForm.Designer.cs",
+              "ToolTip": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\MainForm.Designer.cs",
+              "RelativeToolTip": "auxApp\\MainForm.Designer.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-12T14:06:33.779Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "FlightSimulatorPanel.cs",
+              "DocumentMoniker": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\FlightSimulatorPanel.cs",
+              "RelativeDocumentMoniker": "auxApp\\FlightSimulatorPanel.cs",
+              "ToolTip": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\FlightSimulatorPanel.cs",
+              "RelativeToolTip": "auxApp\\FlightSimulatorPanel.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAuwA8AAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-12T14:05:43.131Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 4,
+              "Title": "Program.cs",
+              "DocumentMoniker": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\Program.cs",
+              "RelativeDocumentMoniker": "auxApp\\Program.cs",
+              "ToolTip": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\Program.cs",
+              "RelativeToolTip": "auxApp\\Program.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-12T14:05:41.693Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "MainForm.cs",
+              "DocumentMoniker": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\MainForm.cs",
+              "RelativeDocumentMoniker": "auxApp\\MainForm.cs",
+              "ToolTip": "C:\\Users\\jebbt\\Documents\\gitroot\\remotecontroller\\app\\auxApp\\auxApp\\MainForm.cs",
+              "RelativeToolTip": "auxApp\\MainForm.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAA4AAAAiAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-07-12T14:05:39.462Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "remotereciver_esp32_2chl"
+		},
+		{
+			"path": "app"
 		}
 	]
 }

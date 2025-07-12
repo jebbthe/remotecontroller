@@ -1,0 +1,17 @@
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\bin\Debug\net8.0-windows\auxApp.exe
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\bin\Debug\net8.0-windows\auxApp.deps.json
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\bin\Debug\net8.0-windows\auxApp.runtimeconfig.json
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\bin\Debug\net8.0-windows\auxApp.dll
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\bin\Debug\net8.0-windows\auxApp.pdb
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.AssemblyInfoInputs.cache
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.AssemblyInfo.cs
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.csproj.CoreCompileInputs.cache
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.sourcelink.json
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.dll
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\refint\auxApp.dll
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.pdb
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.genruntimeconfig.cache
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\ref\auxApp.dll
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.MainForm.resources
+C:\Users\jebbt\Documents\gitroot\remotecontroller\app\auxApp\auxApp\obj\Debug\net8.0-windows\auxApp.csproj.GenerateResource.cache

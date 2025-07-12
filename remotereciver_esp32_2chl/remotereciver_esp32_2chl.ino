@@ -6,7 +6,8 @@
 
 // MPU6500 I2C地址
 #define MPU6500_ADDR 0x68
-//#define ENABLE_SELFCTL 1
+#define ENABLE_SELFCTL 1
+//#define TEST_MPU6500 1
 
 // MPU6500寄存器映射
 #define PWR_MGMT_1   0x6B
@@ -27,8 +28,8 @@
 #define FLIGHT_MODE_HOLD       2  // 姿态保持模式
 
 // 死区控制参数
-#define DEADBAND_PITCH         2.0  // 俯仰死区（度）
-#define DEADBAND_ROLL          2.0  // 横滚死区（度）
+#define DEADBAND_PITCH         4.0  // 俯仰死区（度）- 增加死区范围
+#define DEADBAND_ROLL          4.0  // 横滚死区（度）- 增加死区范围
 
 // 各机型PID参数
 struct PIDParams {
@@ -38,12 +39,12 @@ struct PIDParams {
   float max_i; // 积分限幅
 };
 
-// 纸飞机PID参数 - 调整PID参数以适应面对安装的舵机
+// 纸飞机PID参数 - 进一步降低参数值以减少抖动
 const PIDParams PAPER_PLANE_PID = {
-  .kp = 2.5,    // 保持比例增益
-  .ki = 0.15,   // 保持积分增益
-  .kd = 1.5,    // 保持微分增益
-  .max_i = 100  // 保持积分限幅
+  .kp = 1.0,    // 进一步降低比例增益
+  .ki = 0.01,   // 进一步降低积分增益
+  .kd = 0.3,    // 大幅降低微分增益以减少噪声放大
+  .max_i = 20   // 进一步降低积分限幅
 };
 
 // 骆驼战斗机PID参数
@@ -192,6 +193,18 @@ void readMPU6500() {
   int16_t rawGyroY = Wire.read() << 8 | Wire.read();
   int16_t rawGyroZ = Wire.read() << 8 | Wire.read();
   
+  // Serial.print("rawAccX: ");
+  // Serial.print(rawAccX);
+  // Serial.print("      rawAccY: ");
+  // Serial.print(rawAccY);
+  // Serial.print("      rawGyroX: ");
+  // Serial.print(rawGyroX);
+  // Serial.print("      rawGyroY: ");
+  // Serial.print(rawGyroY);
+  // Serial.print("      rawGyroZ: ");
+  // Serial.println(rawGyroZ);
+
+
   // 检查陀螺仪数据是否在合理范围内
   const float maxGyroRate = 2000.0; // 最大角速度限制（°/s）
   const float maxGyroRaw = maxGyroRate * 16.4; // 对应的原始数据值
@@ -308,16 +321,32 @@ void readMPU6500() {
   // 保存当前角度用于下一次计算
   lastPitch = mpuData.pitch;
   lastRoll = mpuData.roll;
+  // Serial.print("Pitch: ");
+  // Serial.print(lastPitch);
+  // Serial.print(",      Roll: ");
+  // Serial.println(lastRoll);
 }
 
 void stabilizeFlight(ControlData data) {
+  // 计算时间间隔
+  static uint32_t lastPIDTime = 0;
+  uint32_t currentTime = micros();
+  float dt = (currentTime - lastPIDTime) / 1000000.0;
+  lastPIDTime = currentTime;
+  
+  // 设置最小时间阈值防止除零
+  if (dt <= 0) dt = 0.01; // 使用10ms作为默认值
+  
   // 计算误差
   pitchError = -mpuData.pitch;  // 取负值是因为需要向相反方向修正
   rollError = -mpuData.roll;
   
   // 死区控制 - 增加死区范围以减少小角度抖动
-  if(abs(pitchError) < DEADBAND_PITCH * 0.5) pitchError = 0;
-  if(abs(rollError) < DEADBAND_ROLL * 0.5) rollError = 0;
+  bool pitchInDeadband = abs(pitchError) < DEADBAND_PITCH * 0.5;
+  bool rollInDeadband = abs(rollError) < DEADBAND_ROLL * 0.5;
+  
+  if(pitchInDeadband) pitchError = 0;
+  if(rollInDeadband) rollError = 0;
   
   // 获取当前机型的PID参数
   PIDParams pid;
@@ -338,23 +367,61 @@ void stabilizeFlight(ControlData data) {
   }
   
   // 计算积分项 - 添加积分限幅
-  pitchIntegral += pitchError;
-  rollIntegral += rollError;
+  pitchIntegral += pitchError * dt;
+  rollIntegral += rollError * dt;
+  
+  // 当误差进入死区时，逐渐衰减积分项
+  if (pitchInDeadband) {
+    pitchIntegral *= 0.95; // 每次衰减5%
+  }
+  if (rollInDeadband) {
+    rollIntegral *= 0.95; // 每次衰减5%
+  }
   
   // 限制积分项以防止积分饱和
   pitchIntegral = constrain(pitchIntegral, -pid.max_i, pid.max_i);
   rollIntegral = constrain(rollIntegral, -pid.max_i, pid.max_i);
   
-  // 计算PID输出 - 添加输出限幅
-  float pitchOutput = pid.kp * pitchError + pid.ki * pitchIntegral + pid.kd * (pitchError - lastPitchError);
-  float rollOutput = pid.kp * rollError + pid.ki * rollIntegral + pid.kd * (rollError - lastRollError);
+  // 计算微分项 - 考虑时间间隔
+  float pitchDerivative = (pitchError - lastPitchError) / dt;
+  float rollDerivative = (rollError - lastRollError) / dt;
   
-  // 限制PID输出范围 - 根据误差大小动态调整输出范围
-  float pitchLimit = map(abs(pitchError), 0, 90, 25, 50);  // 保持俯仰输出限制
-  float rollLimit = map(abs(rollError), 0, 90, 20, 40);    // 降低横滚输出限制
+  // 微分项滤波 - 减少噪声放大
+  static float filteredPitchDerivative = 0;
+  static float filteredRollDerivative = 0;
+  const float derivativeFilterFactor = 0.3; // 微分项滤波系数
+  
+  filteredPitchDerivative = derivativeFilterFactor * pitchDerivative + (1 - derivativeFilterFactor) * filteredPitchDerivative;
+  filteredRollDerivative = derivativeFilterFactor * rollDerivative + (1 - derivativeFilterFactor) * filteredRollDerivative;
+  
+  // 计算PID输出
+  float pitchOutput = pid.kp * pitchError + pid.ki * pitchIntegral + pid.kd * filteredPitchDerivative;
+  float rollOutput = pid.kp * rollError + pid.ki * rollIntegral + pid.kd * filteredRollDerivative;
+  
+  // 限制PID输出范围 - 使用固定限制而不是动态限制
+  float pitchLimit = 60.0;  // 固定俯仰输出限制
+  float rollLimit = 50.0;   // 固定横滚输出限制
   
   pitchOutput = constrain(pitchOutput, -pitchLimit, pitchLimit);
   rollOutput = constrain(rollOutput, -rollLimit, rollLimit);
+  
+  // 输出平滑 - 减少舵面抖动
+  static float smoothedPitchOutput = 0;
+  static float smoothedRollOutput = 0;
+  const float outputSmoothFactor = 0.4; // 输出平滑系数
+  
+  smoothedPitchOutput = outputSmoothFactor * pitchOutput + (1 - outputSmoothFactor) * smoothedPitchOutput;
+  smoothedRollOutput = outputSmoothFactor * rollOutput + (1 - outputSmoothFactor) * smoothedRollOutput;
+  
+  // 最小输出阈值 - 避免微小输出导致的抖动
+  const float minOutputThreshold = 2.0; // 最小输出阈值
+  
+  if (abs(smoothedPitchOutput) < minOutputThreshold) {
+    smoothedPitchOutput = 0;
+  }
+  if (abs(smoothedRollOutput) < minOutputThreshold) {
+    smoothedRollOutput = 0;
+  }
   
   // 更新上一次误差
   lastPitchError = pitchError;
@@ -369,8 +436,8 @@ void stabilizeFlight(ControlData data) {
     case AIRCRAFT_PAPER_PLANE: {
       // 纸飞机：对称控制俯仰，差动控制横滚
       // 计算目标舵机位置 - 考虑舵机面对安装和机头向上的情况
-      float rightTarget = 90.0 + (pitchOutput * mix.pitch) - (rollOutput * mix.roll);   // 右舵机 (ch1)，横滚方向相反
-      float leftTarget = 90.0 - (pitchOutput * mix.pitch) - (rollOutput * mix.roll);    // 左舵机 (ch2)
+      float rightTarget = 90.0 + (smoothedPitchOutput * mix.pitch) - (smoothedRollOutput * mix.roll);   // 右舵机 (ch1)，横滚方向相反
+      float leftTarget = 90.0 - (smoothedPitchOutput * mix.pitch) - (smoothedRollOutput * mix.roll);    // 左舵机 (ch2)
       
       // 限制输出范围
       rightTarget = constrain(rightTarget, 45.0, 135.0);
@@ -380,15 +447,17 @@ void stabilizeFlight(ControlData data) {
       ch1.write(rightTarget);  // 右舵机
       ch2.write(leftTarget);   // 左舵机
       
-      // 调试输出
-      Serial.print("Pitch Error: ");
+      // 调试输出 - 添加时间戳
+      Serial.print("[");
+      Serial.print(millis());
+      Serial.print("ms] Pitch Error: ");
       Serial.print(pitchError);
       Serial.print(" Roll Error: ");
       Serial.print(rollError);
-      Serial.print(" Pitch Output: ");
-      Serial.print(pitchOutput);
-      Serial.print(" Roll Output: ");
-      Serial.print(rollOutput);
+      Serial.print(" Current Pitch: ");
+      Serial.print(mpuData.pitch);
+      Serial.print(" Current Roll: ");
+      Serial.print(mpuData.roll);
       Serial.print(" Right Target: ");
       Serial.print(rightTarget);
       Serial.print(" Left Target: ");
@@ -398,15 +467,15 @@ void stabilizeFlight(ControlData data) {
       
     case AIRCRAFT_CAMEL: {
       // 骆驼战斗机：独立控制
-      ch1.write(constrain(currentCh1 + (pitchOutput * mix.pitch), 45, 135));
-      ch2.write(constrain(currentCh2 + (rollOutput * mix.roll), 45, 135));
+      ch1.write(constrain(currentCh1 + (smoothedPitchOutput * mix.pitch), 45, 135));
+      ch2.write(constrain(currentCh2 + (smoothedRollOutput * mix.roll), 45, 135));
       break;
     }
       
     case AIRCRAFT_P51: {
       // P51：标准控制
-      ch2.write(constrain(currentCh2 + pitchOutput, 45, 135));
-      ch1.write(constrain(currentCh1 + rollOutput, 45, 135));
+      ch2.write(constrain(currentCh2 + smoothedPitchOutput, 45, 135));
+      ch1.write(constrain(currentCh1 + smoothedRollOutput, 45, 135));
       break;
     }
   }
@@ -432,6 +501,7 @@ void setup() {
   initRF();
   showLight();
 
+#ifndef TEST_MPU6500
   // 安全解锁流程
   Serial.println(F("等待解锁确认..."));
   Serial.println(F("请将油门摇杆推到最低位置"));
@@ -483,6 +553,7 @@ void setup() {
       delay(100);
     }
   }
+#endif
 
   Serial.println(F("开始自检"));
   selfCheck();
@@ -639,7 +710,20 @@ void selfCheck(){
   digitalWrite(PIN_LED, LOW);
 }
 
+void testMPU(){
+  readMPU6500();
+  ControlData data;
+  data.aircraft_type = AIRCRAFT_PAPER_PLANE;
+  stabilizeFlight(data);
+  return;
+}
+
 void loop() {
+#ifdef TEST_MPU6500  
+  delay(100);
+  return testMPU();
+#endif
+
   if(radio.available()){
     ControlData data;
     radio.read(&data, sizeof(data));

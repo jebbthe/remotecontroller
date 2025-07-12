@@ -8,7 +8,6 @@
 #include <EEPROM.h>
 
 //#define DEBUG
-
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
@@ -21,6 +20,8 @@ RF24 radio(CE_P, CSN_P);
 // 硬件引脚定义
 #define PIN_SIG_LED          9     // 信号LED
 #define PIN_BEEP             3     // 喇叭
+#define PIN_STABILIZE_SW     A6    // 自平衡模式开关 (ADC6)
+//#define PIN_STABILIZE_SW     10    // 自平衡模式开关
 #define MAX_STILL_LOOP       1500
 #define FLAP_MAX  511
 #define FLAP_MIN -512
@@ -53,7 +54,7 @@ unsigned long lastRollTime = 0;
 int lastRollValue = 512;
 
 // Menu system variables
-enum ModelType { PAPER_PLANE, CAMEL_FIGHTER, P51_FIGHTER };
+enum ModelType { PAPER_PLANE};
 enum MixMode { MIXED, DIRECT };
 struct Config {
   ModelType modelType;
@@ -349,20 +350,15 @@ void initOLED() {
   if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println(F("OLED初始化失败!"));
     while(1);
+  } else {
+    // 设置OLED显示参数
+    oled.clearDisplay();
+    oled.setTextSize(1);
+    oled.setTextColor(SSD1306_WHITE);
+    oled.setCursor(0, 0);
+    oled.setRotation(0);  // 设置显示方向
+    oled.stopscroll();  // 禁用滚动
   }
-  
-  // 设置OLED显示参数
-  oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-  oled.setCursor(0, 0);
-  
-  // 设置显示方向
-  oled.setRotation(0);
-  
-  // 禁用滚动
-  oled.stopscroll();
-  
   // 显示初始画面
   showText("Loading...");
 }
@@ -371,11 +367,20 @@ void initPin(){
   //设置管脚模式
   pinMode(PIN_SIG_LED, OUTPUT);
   pinMode(PIN_BEEP, OUTPUT);
+  pinMode(PIN_STABILIZE_SW, INPUT_PULLUP);  // 自平衡开关，默认上拉
   Serial.println("管脚模式设置完成");
 
   digitalWrite(PIN_BEEP, LOW);
   digitalWrite(PIN_SIG_LED, LOW);
   Serial.println("LED设置完成");
+}
+
+// 检测ADC6按键状态
+bool isStabilizeSwitchPressed() {
+  // ADC6是模拟输入，需要读取模拟值
+  // 按键浮空时读取值接近1023，按下接地时读取值接近0
+  int adcValue = analogRead(PIN_STABILIZE_SW);
+  return (adcValue == 0);
 }
 
 void initRF(){
@@ -398,7 +403,7 @@ void initRF(){
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
  #ifdef DEBUG
-   radio.printDetails();
+   //radio.printDetails();
  #endif
 }
 /*  */
@@ -448,7 +453,7 @@ void showConfigSummary() {
   oled.println(F("Config Summary:"));
   oled.println();
   oled.print(F("Model: "));
-  oled.println(config.modelType == PAPER_PLANE ? F("Paper Plane") : config.modelType == CAMEL_FIGHTER ? F("Camel Fighter") : F("P51 Fighter"));
+  oled.println(F("Paper Plane"));
   oled.print(F("Mix: "));
   oled.println(config.mixMode == MIXED ? F("Mixed") : F("Direct"));
   oled.print(F("CH1: "));
@@ -498,11 +503,15 @@ void loop() {
   ControlData data;
   // Set aircraft_type and flight_mode based on config/menu (example:)
   data.aircraft_type = config.modelType; // Now maps directly to 0, 1, or 2
-  if (throttle == 0 && abs(pitchValue) < deadZone && abs(rollValue) < deadZone) {
-    data.flight_mode = FLIGHT_MODE_STABILIZE; // Auto stabilize when throttle is zero and no joystick input
+  
+  // 检查自平衡开关状态
+  bool stabilizeSwitchPressed = isStabilizeSwitchPressed();  // 使用ADC6检测按键状态
+  if (stabilizeSwitchPressed) {
+    data.flight_mode = FLIGHT_MODE_STABILIZE; // 按键按下时启动自平衡模式
   } else {
-    data.flight_mode = FLIGHT_MODE_MANUAL;    // Manual mode otherwise
+    data.flight_mode = FLIGHT_MODE_MANUAL;    // 按键弹起时为手动模式
   }
+
   data.throttle = throttle;
   // Map left_flap/right_flap to ch1/ch2, ch3=0 for now
   data.ch1 = left_flap;
@@ -553,7 +562,7 @@ void loop() {
       failedCount++;
       Serial.println(F("发送数据失败"));
  #ifdef DEBUG
-      radio.printDetails();
+      //radio.printDetails();
  #endif    
       delayForNextSend();
     }
@@ -625,6 +634,7 @@ void displayStatus(int rssi, int t, int left, int right) {
   static int lastT = 0;
   static int lastLeft = 0;
   static int lastRight = 0;
+  static bool isPressed = false;
   
   // 检查是否需要更新显示
   if (millis() - lastDisplayUpdate < 200) {  // 降低更新频率到200ms
@@ -632,7 +642,7 @@ void displayStatus(int rssi, int t, int left, int right) {
   }
   
   // 检查数据是否发生变化
-  if (rssi == lastRssi && t == lastT && left == lastLeft && right == lastRight) {
+  if (rssi == lastRssi && t == lastT && left == lastLeft && right == lastRight && isPressed == isStabilizeSwitchPressed()) {
     return;
   }
   
@@ -661,15 +671,21 @@ void displayStatus(int rssi, int t, int left, int right) {
   oled.print(t);
   oled.print(F("%"));
   
-  oled.setCursor(0, 32);
-  oled.print(F("CH1:"));
-  oled.print(left);
-  oled.print(F("%"));
-  
-  oled.setCursor(0, 48);
-  oled.print(F("CH2:"));
-  oled.print(right);
-  oled.print(F("%"));
+  isPressed = isStabilizeSwitchPressed();
+  if (isPressed) {
+    oled.setCursor(0, 32);
+    oled.print(F("STAB MODE"));
+  } else {
+    oled.setCursor(0, 32);
+    oled.print(F("CH1:"));
+    oled.print(left);
+    oled.print(F("%"));
+    
+    oled.setCursor(0, 48);
+    oled.print(F("CH2:"));
+    oled.print(right);
+    oled.print(F("%"));
+  }
   
   // 确保显示更新完成
   oled.display();
