@@ -21,7 +21,6 @@ RF24 radio(CE_P, CSN_P);
 #define PIN_SIG_LED          9     // 信号LED
 #define PIN_BEEP             3     // 喇叭
 #define PIN_STABILIZE_SW     A6    // 自平衡模式开关 (ADC6)
-//#define PIN_STABILIZE_SW     10    // 自平衡模式开关
 #define MAX_STILL_LOOP       1500
 #define FLAP_MAX  511
 #define FLAP_MIN -512
@@ -403,10 +402,10 @@ void initRF(){
   radio.setAutoAck(true);
   radio.setCRCLength(RF24_CRC_16);
  #ifdef DEBUG
-   //radio.printDetails();
+  radio.printDetails();
  #endif
 }
-/*  */
+
 void beepForRFFail(){
   for (int i=0;i<3;i++){
     digitalWrite(PIN_BEEP, HIGH);
@@ -562,7 +561,7 @@ void loop() {
       failedCount++;
       Serial.println(F("发送数据失败"));
  #ifdef DEBUG
-      //radio.printDetails();
+      radio.printDetails();
  #endif    
       delayForNextSend();
     }
