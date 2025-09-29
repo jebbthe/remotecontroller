@@ -18,9 +18,13 @@ Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 RF24 radio(CE_P, CSN_P); 
 
 // 硬件引脚定义
-#define PIN_SIG_LED          9     // 信号LED
 #define PIN_BEEP             3     // 喇叭
-#define PIN_STABILIZE_SW     A6    // 自平衡模式开关 (ADC6)
+#define PIN_STABILIZE_SW     10    // 自平衡模式开关 
+#define PIN_CHAG_STATUS      4
+#define PIN_STDBY_STATUS     2 
+#define PIN_BAT_DET_EN       9
+#define PIN_VOL_DETECT       A6
+#define PIN_RUDDER_VALUE     A7
 #define MAX_STILL_LOOP       1500
 #define FLAP_MAX  511
 #define FLAP_MIN -512
@@ -313,6 +317,7 @@ void setup() {
   Serial.println(F("管脚设置完成!"));
 
   //初始化OLED
+  delay(500);
   Serial.println(F("开始初始化OLED..."));
   initOLED();
   Serial.println(F("OLED初始化完成!"));
@@ -364,22 +369,22 @@ void initOLED() {
 
 void initPin(){
   //设置管脚模式
-  pinMode(PIN_SIG_LED, OUTPUT);
   pinMode(PIN_BEEP, OUTPUT);
+  pinMode(PIN_BAT_DET_EN, OUTPUT);
+  pinMode(PIN_VOL_DETECT, INPUT);
   pinMode(PIN_STABILIZE_SW, INPUT_PULLUP);  // 自平衡开关，默认上拉
+  pinMode(PIN_RUDDER_VALUE, INPUT);
+  pinMode(PIN_CHAG_STATUS, INPUT);          //充电状态
+  pinMode(PIN_STDBY_STATUS, INPUT);         //充电完成状态
   Serial.println("管脚模式设置完成");
 
   digitalWrite(PIN_BEEP, LOW);
-  digitalWrite(PIN_SIG_LED, LOW);
+  digitalWrite(PIN_BAT_DET_EN, HIGH);
   Serial.println("LED设置完成");
 }
 
-// 检测ADC6按键状态
 bool isStabilizeSwitchPressed() {
-  // ADC6是模拟输入，需要读取模拟值
-  // 按键浮空时读取值接近1023，按下接地时读取值接近0
-  int adcValue = analogRead(PIN_STABILIZE_SW);
-  return (adcValue == 0);
+  return !digitalRead(PIN_STABILIZE_SW);  
 }
 
 void initRF(){
@@ -431,13 +436,9 @@ void showText(const char* str){
 // 添加LED状态控制变量
 unsigned long lastLedOnTime = 0;
 const unsigned long LED_ON_DURATION = 100;  // LED亮起持续时间(ms)
-bool ledState = false;
 
 void showReady(){
   showText("Hello Baby");
-  digitalWrite(PIN_SIG_LED, HIGH);
-  delay(500);
-  digitalWrite(PIN_SIG_LED, LOW);
 
   Serial.println(F("系统就绪提示音"));
   digitalWrite(PIN_BEEP, HIGH);
@@ -553,9 +554,7 @@ void loop() {
       failedCount = 0;
       Serial.println(F("发送数据成功"));
       // 更新LED状态和时间
-      ledState = true;
       lastLedOnTime = millis();
-      digitalWrite(PIN_SIG_LED, HIGH);
       delayForNextSend();
     } else {
       failedCount++;
@@ -566,11 +565,6 @@ void loop() {
       delayForNextSend();
     }
 
-    // 检查是否需要关闭LED
-    if (ledState && (millis() - lastLedOnTime >= LED_ON_DURATION)) {
-      ledState = false;
-      digitalWrite(PIN_SIG_LED, LOW);
-    }
   }
 }
 
