@@ -387,6 +387,85 @@ bool isStabilizeSwitchPressed() {
   return !digitalRead(PIN_STABILIZE_SW);  
 }
 
+// 电池电量检测函数
+int getBatteryLevel() {
+  // 读取A6引脚的电压值
+  int voltageRaw = analogRead(PIN_VOL_DETECT);
+  
+  // 2S电池电压范围：6.0V-8.4V
+  // 假设分压比为1:2，所以实际电压 = 读取值 * 5V / 1023 * 3
+  float voltage = (voltageRaw * 5.0 / 1023.0) * 3.0;
+  
+#ifdef DEBUG
+  Serial.print("Battery Raw: ");
+  Serial.print(voltageRaw);
+  Serial.print(", Voltage: ");
+  Serial.print(voltage);
+  Serial.print("V, Level: ");
+#endif
+  
+  // 根据电压值返回电量档位 (0-3)
+  int level;
+  if (voltage >= 7.8) level = 3;      // 75-100%
+  else if (voltage >= 7.2) level = 2; // 50-75%
+  else if (voltage >= 6.6) level = 1; // 25-50%
+  else level = 0;                     // 0-25%
+  
+#ifdef DEBUG
+  Serial.println(level);
+#endif
+  
+  return level;
+}
+
+// 充电状态检测函数
+bool isCharging() {
+  return digitalRead(PIN_CHAG_STATUS) == HIGH;
+}
+
+// 充电完成状态检测函数
+bool isChargeComplete() {
+  return digitalRead(PIN_STDBY_STATUS) == HIGH;
+}
+
+// 绘制电池图标和电量显示
+void drawBatteryIcon(int x, int y, int level, bool charging, bool chargeComplete) {
+  // 电池外框 (16x8像素)
+  oled.drawRect(x, y, 16, 8, SSD1306_WHITE);
+  
+  // 电池正极 (2x3像素)
+  oled.drawRect(x + 16, y + 2, 2, 4, SSD1306_WHITE);
+  oled.fillRect(x + 16, y + 2, 2, 4, SSD1306_WHITE);
+  
+  // 根据电量等级填充电池内部
+  if (level > 0) {
+    int fillWidth = (level * 12) / 3; // 12像素宽度分成3档
+    if (fillWidth > 0) {
+      oled.fillRect(x + 1, y + 1, fillWidth, 6, SSD1306_WHITE);
+    }
+  }
+  
+  // 如果电量为0，显示空电池警告
+  if (level == 0) {
+    // 在电池内部画一个X表示电量不足
+    oled.drawLine(x + 2, y + 2, x + 14, y + 6, SSD1306_WHITE);
+    oled.drawLine(x + 14, y + 2, x + 2, y + 6, SSD1306_WHITE);
+  }
+  
+  // 充电状态显示
+  if (charging) {
+    // 显示充电符号 "+"
+    oled.setCursor(x + 6, y + 10);
+    oled.setTextSize(1);
+    oled.print(F("+"));
+  } else if (chargeComplete) {
+    // 显示充电完成符号 "✓"
+    oled.setCursor(x + 6, y + 10);
+    oled.setTextSize(1);
+    oled.print(F("✓"));
+  }
+}
+
 void initRF(){
   //初始化无线模块
   if (!radio.begin()){
@@ -628,14 +707,25 @@ void displayStatus(int rssi, int t, int left, int right) {
   static int lastLeft = 0;
   static int lastRight = 0;
   static bool isPressed = false;
+  static int lastBatteryLevel = -1;
+  static bool lastCharging = false;
+  static bool lastChargeComplete = false;
   
   // 检查是否需要更新显示
   if (millis() - lastDisplayUpdate < 200) {  // 降低更新频率到200ms
     return;
   }
   
+  // 获取当前电池状态
+  int currentBatteryLevel = getBatteryLevel();
+  bool currentCharging = isCharging();
+  bool currentChargeComplete = isChargeComplete();
+  bool currentPressed = isStabilizeSwitchPressed();
+  
   // 检查数据是否发生变化
-  if (rssi == lastRssi && t == lastT && left == lastLeft && right == lastRight && isPressed == isStabilizeSwitchPressed()) {
+  if (rssi == lastRssi && t == lastT && left == lastLeft && right == lastRight && 
+      isPressed == currentPressed && lastBatteryLevel == currentBatteryLevel &&
+      lastCharging == currentCharging && lastChargeComplete == currentChargeComplete) {
     return;
   }
   
@@ -644,12 +734,17 @@ void displayStatus(int rssi, int t, int left, int right) {
   lastT = t;
   lastLeft = left;
   lastRight = right;
+  isPressed = currentPressed;
+  lastBatteryLevel = currentBatteryLevel;
+  lastCharging = currentCharging;
+  lastChargeComplete = currentChargeComplete;
   lastDisplayUpdate = millis();
 
   // 使用局部缓冲区
   oled.clearDisplay();
+  oled.setTextSize(1);
   
-  // 顶部状态栏 - 使用固定宽度格式化
+  // 顶部状态栏 - 信号强度在左侧
   oled.setCursor(0, 0);
   oled.print(F("SIG:"));
   oled.print(rssi);
@@ -658,13 +753,15 @@ void displayStatus(int rssi, int t, int left, int right) {
     oled.print(F("(!)"));
   }
 
+  // 右上角显示电池状态
+  drawBatteryIcon(100, 0, currentBatteryLevel, currentCharging, currentChargeComplete);
+
   // 通道数据显示 - 使用固定宽度格式化
   oled.setCursor(0, 16);
   oled.print(F("THR:"));
   oled.print(t);
   oled.print(F("%"));
   
-  isPressed = isStabilizeSwitchPressed();
   if (isPressed) {
     oled.setCursor(0, 32);
     oled.print(F("STAB MODE"));
