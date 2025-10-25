@@ -370,10 +370,9 @@ void initOLED() {
 void initPin(){
   //设置管脚模式
   pinMode(PIN_BEEP, OUTPUT);
-  pinMode(PIN_BAT_DET_EN, OUTPUT);
-  pinMode(PIN_VOL_DETECT, INPUT);
-  pinMode(PIN_STABILIZE_SW, INPUT_PULLUP);  // 自平衡开关，默认上拉
-  pinMode(PIN_RUDDER_VALUE, INPUT);
+  pinMode(PIN_BAT_DET_EN, OUTPUT);          //电源检测触发
+  pinMode(PIN_STABILIZE_SW, INPUT);         //自平衡开关
+  pinMode(PIN_RUDDER_VALUE, INPUT);         //大小舵位
   pinMode(PIN_CHAG_STATUS, INPUT);          //充电状态
   pinMode(PIN_STDBY_STATUS, INPUT);         //充电完成状态
   Serial.println("管脚模式设置完成");
