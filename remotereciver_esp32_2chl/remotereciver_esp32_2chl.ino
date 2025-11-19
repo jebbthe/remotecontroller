@@ -6,7 +6,7 @@
 
 // MPU6500 I2C地址
 #define MPU6500_ADDR 0x68
-#define ENABLE_SELFCTL 1
+#define ENABLE_SELFCTL 0
 //#define TEST_MPU6500 1
 
 // MPU6500寄存器映射
@@ -86,8 +86,12 @@ const ServoMix CAMEL_MIX = {
 #define MISO_PIN 5
 #define SCK_PIN  4
 // CE 和 CSN 引脚
-#define CE_PIN   20
+#define CE_PIN   18
 #define CSN_PIN  10
+
+// I2C 引脚定义（用于MPU6500）
+#define I2C_SDA_PIN 19
+#define I2C_SCL_PIN 17
 
 //无线模块
 RF24 radio(CE_PIN, CSN_PIN); 
@@ -148,10 +152,10 @@ static float filteredGyroX = 0, filteredGyroY = 0;
 float lastAccX = 0, lastAccY = 0, lastAccZ = 0;
 
 void initMPU6500() {
-  Wire.begin();
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.beginTransmission(MPU6500_ADDR);
   Wire.write(PWR_MGMT_1);
-  Wire.write(0);  // 唤醒MPU6500
+  Wire.write(0);        // 唤醒MPU6500
   Wire.endTransmission(true);
   
   // 配置陀螺仪量程（±2000°/s）
@@ -490,15 +494,22 @@ void holdAttitude() {
 void setup() {
    // 手动初始化 SPI 并指定引脚
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN); 
-
+   
   Serial.begin(9600);
   printf_begin();
-
+  
   pinMode(PIN_LED, OUTPUT);
+  
+  //提示主电源接通，芯片开始工作
+  digitalWrite(PIN_LED, HIGH);
+  delay(1000);
   digitalWrite(PIN_LED, LOW);
 
   initController();
+
   initRF();
+
+  //提示核心部件启动成功
   showLight();
 
 #ifndef TEST_MPU6500
@@ -653,6 +664,7 @@ void initController(){
   ch1.write(90);
   ch2.write(90);
   ch3.write(90);
+  Serial.println("initController OK");
 }
 
 void showLight(){
@@ -667,6 +679,7 @@ void showLight(){
 
 void initRF(){
   if (!radio.begin()){
+    Serial.println("radio.begin failed!");
     radio.printPrettyDetails();
     while(1);
   }  
@@ -679,6 +692,7 @@ void initRF(){
   radio.setRetries(0, 0);  
   radio.setCRCLength(RF24_CRC_16);  
   radio.startListening();
+  Serial.println("initRF OK");
 }
 
 void selfCheck(){
