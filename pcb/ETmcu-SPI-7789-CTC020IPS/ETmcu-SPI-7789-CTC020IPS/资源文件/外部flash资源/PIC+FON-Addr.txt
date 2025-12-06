@@ -1,0 +1,4 @@
+{0x00000000, 0x000BB080}, //G:\2020PRJ\module\通用信号转接模块\MCU接口演示板MINI\SW\ETmcu-code-8080-16\资源文件\外部flash资源\字库\16.bin
+{0x000BB080, 0x001A4D20}, //G:\2020PRJ\module\通用信号转接模块\MCU接口演示板MINI\SW\ETmcu-code-8080-16\资源文件\外部flash资源\字库\24.bin
+{0x0025FDA0, 0x002EC200}, //G:\2020PRJ\module\通用信号转接模块\MCU接口演示板MINI\SW\ETmcu-code-8080-16\资源文件\外部flash资源\字库\32.bin
+{0x0054BFA0, 0x003CAC80}, //G:\2020PRJ\module\通用信号转接模块\MCU接口演示板MINI\SW\ETmcu-code-8080-16\资源文件\外部flash资源\外部图片\PIC.bin

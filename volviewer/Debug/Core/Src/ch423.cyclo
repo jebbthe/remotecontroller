@@ -1,0 +1,7 @@
+../Core/Src/ch423.c:4:6:CH423_I2c_Start	1
+../Core/Src/ch423.c:16:6:CH423_I2c_Stop	1
+../Core/Src/ch423.c:26:6:CH423_I2c_WrByte	3
+../Core/Src/ch423.c:46:15:CH423_I2c_RdByte	3
+../Core/Src/ch423.c:70:6:CH423_Write	1
+../Core/Src/ch423.c:78:6:CH423_WriteByte	1
+../Core/Src/ch423.c:86:15:CH423_ReadByte	1

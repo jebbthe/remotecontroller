@@ -393,7 +393,7 @@ int getBatteryLevel() {
   
   // 2S电池电压范围：6.0V-8.4V
   // 假设分压比为1:2，所以实际电压 = 读取值 * 5V / 1023 * 3
-  float voltage = (voltageRaw * 5.0 / 1023.0) * 3.0;
+  float voltage = (voltageRaw * 7.4 / 757);
   
 #ifdef DEBUG
   Serial.print("Battery Raw: ");
@@ -583,7 +583,7 @@ void loop() {
   data.aircraft_type = config.modelType; // Now maps directly to 0, 1, or 2
   
   // 检查自平衡开关状态
-  bool stabilizeSwitchPressed = isStabilizeSwitchPressed();  // 使用ADC6检测按键状态
+  bool stabilizeSwitchPressed = isStabilizeSwitchPressed();  
   if (stabilizeSwitchPressed) {
     data.flight_mode = FLIGHT_MODE_STABILIZE; // 按键按下时启动自平衡模式
   } else {
@@ -591,10 +591,9 @@ void loop() {
   }
 
   data.throttle = throttle;
-  // Map left_flap/right_flap to ch1/ch2, ch3=0 for now
   data.ch1 = left_flap;
   data.ch2 = right_flap;
-  data.ch3 = 0; // If you have a third channel, set it here
+  data.ch3 = 0; 
   data.checksum = (data.aircraft_type + data.flight_mode + data.throttle + data.ch1 + data.ch2 + data.ch3) % 256;
 
   if (!checkAction(data)){
@@ -615,7 +614,7 @@ void loop() {
     // OLED显示
     displayStatus(rssi, throttlePercentage, 
                map(left_flap, FLAP_MIN, FLAP_MAX, -100, 100),
-               map(right_flap, FLAP_MIN, FLAP_MAX, -100, 100));
+               map(right_flap, FLAP_MIN, FLAP_MAX, -100, 100));      
 
 #ifdef DEBUG
     Serial.println(F("Sending ControlData:"));
@@ -627,9 +626,9 @@ void loop() {
     Serial.print(F("  CH3: ")); Serial.println(data.ch3);
     Serial.print(F("  Checksum: ")); Serial.println(data.checksum);
 #endif
-
+    
     if (radio.write(&data, sizeof(data))){
-      failedCount = 0;
+      failedCount = 0; 
       Serial.println(F("发送数据成功"));
       // 更新LED状态和时间
       lastLedOnTime = millis();
