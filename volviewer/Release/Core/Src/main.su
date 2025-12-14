@@ -1,5 +1,5 @@
-../Core/Src/main.c:90:6:Disp_Voltage	0	static
-../Core/Src/main.c:103:6:TIM6_IRQHandler	16	static
-../Core/Src/main.c:203:6:SystemClock_Config	80	static,ignoring_inline_asm
-../Core/Src/main.c:134:5:main	56	static,ignoring_inline_asm
-../Core/Src/main.c:368:6:Error_Handler	0	static,ignoring_inline_asm
+../Core/Src/main.c:71:6:Disp_Voltage	16	static
+../Core/Src/main.c:80:6:TIM6_IRQHandler	16	static
+../Core/Src/main.c:173:6:SystemClock_Config	80	static,ignoring_inline_asm
+../Core/Src/main.c:142:5:main	48	static,ignoring_inline_asm
+../Core/Src/main.c:314:6:Error_Handler	0	static,ignoring_inline_asm

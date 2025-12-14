@@ -20,48 +20,22 @@
 #include "main.h"
 #include "ch423.h"
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
+#define TEST_LED
+#define MODE_STATIC 0
+#define MODE_DYNAMIC 1
+#define TEST_MODE MODE_STATIC
 
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc;
 
 TIM_HandleTypeDef htim6;
 
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
-
-/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC_Init(void);
 static void MX_TIM6_Init(void);
-/* USER CODE BEGIN PFP */
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
 // 共阳数码管段码表（0~9，段a~g对应IO0~IO6，低电平亮）
-const uint8_t SEG_TABLE[10] = {
+const uint8_t SEG_TABLE_S[10] = {
     0xC0, // 0
     0xF9, // 1
     0xA4, // 2
@@ -73,31 +47,34 @@ const uint8_t SEG_TABLE[10] = {
     0x80, // 8
     0x90  // 9
 };
+
+// 共阴数码管段码表（0~9，段a~g对应IO0~IO6，高电平亮）
+const uint8_t SEG_TABLE_D[10] = {
+    0xC0, // 0
+    0xF9, // 1
+    0xA4, // 2
+    0xB0, // 3
+    0x99, // 4
+    0x92, // 5
+    0x82, // 6
+    0xF8, // 7
+    0x80, // 8
+    0x90  // 9
+};
+
+
 uint16_t adc_value = 0;           // ADC原始值
 float voltage = 0.0f;             // 电压值
 uint8_t disp_buf[3] = {0,0,0};    // 显示缓存
 
 /************************* 数码管显示 *************************/
-//void Disp_Voltage(void)
-//{
-//	CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[disp_buf[0]] & 0x7F));//IO1输出
-//
-//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[1]]);//IO1输出
-//
-//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[2]]);//IO1输出
-//}
-
 void Disp_Voltage(void)
 {
-//	CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[disp_buf[0]] & 0x7F));
-//	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC0_L_DAT );
-
-//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[1]]);
-//	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC1_L_DAT );
-//
-//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[2]]);
-//	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT );
+	CH423_WriteByte(CH423_SET_IO0_CMD | (SEG_TABLE_D[disp_buf[0]] & 0x7F));
+	CH423_WriteByte(CH423_SET_IO1_CMD | SEG_TABLE_D[disp_buf[1]]);
+	CH423_WriteByte(CH423_SET_IO2_CMD | SEG_TABLE_D[disp_buf[2]]);
 }
+
 
 /************************* TIM6中断服务函数 *************************/
 void TIM6_DAC_IRQHandler(void)
@@ -125,7 +102,38 @@ void TIM6_DAC_IRQHandler(void)
   Disp_Voltage();
 }
 
-/* USER CODE END 0 */
+static void testStaticLED(){
+	//共阳级静态驱动，无法满足诉求
+	CH423_WriteByte(CH423_SYS_CMD | BIT_IO_OE);
+	HAL_Delay(5);
+	//初始化
+	CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
+	CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
+	CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
+	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT | BIT_OC1_L_DAT | BIT_OC0_L_DAT);
+	HAL_Delay(5);
+	//测试代码
+	while(1){
+		CH423_WriteByte(CH423_OC_L_CMD | BIT_OC0_L_DAT);
+		CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE_S[1] & 0x7F));
+		CH423_WriteByte(CH423_OC_L_CMD | BIT_OC1_L_DAT);
+		CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE_S[2]));
+		CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT);
+		CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE_S[3]));
+	}
+}
+
+static void testDynamicLED(){
+	//共阳级静态驱动，无法满足诉求
+	CH423_WriteByte(CH423_SYS_CMD | BIT_IO_OE | BIT_DEC_L);
+	HAL_Delay(5);
+
+	while(1){
+		CH423_WriteByte(CH423_SET_IO0_CMD | (SEG_TABLE_D[1] & 0x7F));
+		CH423_WriteByte(CH423_SET_IO1_CMD | (SEG_TABLE_D[2]));
+		CH423_WriteByte(CH423_SET_IO2_CMD | (SEG_TABLE_D[3]));
+	}
+}
 
 /**
   * @brief  The application entry point.
@@ -134,66 +142,28 @@ void TIM6_DAC_IRQHandler(void)
 int main(void)
 {
 
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_ADC_Init();
+
+#ifdef TEST_LED
+	#if TEST_MODE == 0
+	  testStaticLED();
+	#elif
+	  testDynamicLED();
+	#endif
+#endif
+
   MX_TIM6_Init();
-
-  //共阳级静态驱动，无法满足诉求
-  CH423_WriteByte(CH423_SYS_CMD | BIT_IO_OE);
-  HAL_Delay(5);
-  //初始化
-  CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
-  CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
-  CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
-  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT | BIT_OC1_L_DAT | BIT_OC0_L_DAT);
-  HAL_Delay(5);
-  //测试代码
-  while(1){
-	  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC0_L_DAT);
-	  CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[1] & 0x7F));
-	  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC1_L_DAT);
-	  CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[2]));
-	  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT);
-  	  CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[3]));
-  }
-
-
-  /* USER CODE END 2 */
   if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
   {
 	  Error_Handler();
   }
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
   }
-  /* USER CODE END 3 */
 }
 
 /**
@@ -244,18 +214,8 @@ void SystemClock_Config(void)
 static void MX_ADC_Init(void)
 {
 
-  /* USER CODE BEGIN ADC_Init 0 */
-
-  /* USER CODE END ADC_Init 0 */
-
   ADC_ChannelConfTypeDef sConfig = {0};
 
-  /* USER CODE BEGIN ADC_Init 1 */
-
-  /* USER CODE END ADC_Init 1 */
-
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
   hadc.Instance = ADC1;
   hadc.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc.Init.Resolution = ADC_RESOLUTION_12B;
@@ -275,8 +235,6 @@ static void MX_ADC_Init(void)
     Error_Handler();
   }
 
-  /** Configure for the selected ADC regular channel to be converted.
-  */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
@@ -284,9 +242,6 @@ static void MX_ADC_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN ADC_Init 2 */
-
-  /* USER CODE END ADC_Init 2 */
 
 }
 
@@ -302,9 +257,6 @@ static void MX_TIM6_Init(void)
 	__HAL_RCC_TIM6_CLK_ENABLE();
   /* USER CODE END TIM6_Init 0 */
 
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
   htim6.Init.Prescaler = 0;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
@@ -329,32 +281,26 @@ static void MX_TIM6_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PB6 PB7 */
+  //初始化LED引脚
   GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-	// PA0（ADC输入）：模拟模式
-	GPIO_InitStruct.Pin = GPIO_PIN_0;
-	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  // PA0（ADC输入）：模拟模式
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
