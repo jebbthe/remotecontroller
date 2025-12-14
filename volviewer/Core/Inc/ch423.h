@@ -84,6 +84,11 @@
 #define BIT_IO6_DAT 0x40		// GPIO6
 #define BIT_IO7_DAT 0x80		// GPIO7
 
+#define CH423_SET_IO0_CMD 0x6000
+#define CH423_SET_IO1_CMD 0x6200
+#define CH423_SET_IO2_CMD 0x6400
+
+
 /* GPIO_read I2C addr */
 
 #define CH423_RD_IO_CMD 0x4D // GPIO_read I2C addr

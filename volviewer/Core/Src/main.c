@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "ch423.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -40,15 +41,25 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN PV */
-/************************* 宏定义 *************************/
-// CH423S I2C配置
-#define CH423_I2C_ADDR  0x80    // CH423S 7位地址（标准库使用7位地址）
-#define CH423_CMD_SYS   0x48    // 系统配置命令
-#define CH423_CMD_OC_L  0x44    // 写OC口低8位命令
-#define CH423_CMD_IO    0x60    // 写IO口命令
-#define CH423_SYS_PARAM 0x00    // 系统配置参数：使能IO输出
+ADC_HandleTypeDef hadc;
 
+TIM_HandleTypeDef htim6;
+
+/* USER CODE BEGIN PV */
+
+/* USER CODE END PV */
+
+/* Private function prototypes -----------------------------------------------*/
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+static void MX_ADC_Init(void);
+static void MX_TIM6_Init(void);
+/* USER CODE BEGIN PFP */
+
+/* USER CODE END PFP */
+
+/* Private user code ---------------------------------------------------------*/
+/* USER CODE BEGIN 0 */
 // 共阳数码管段码表（0~9，段a~g对应IO0~IO6，低电平亮）
 const uint8_t SEG_TABLE[10] = {
     0xC0, // 0
@@ -62,70 +73,31 @@ const uint8_t SEG_TABLE[10] = {
     0x80, // 8
     0x90  // 9
 };
-
-/************************* 全局变量 *************************/
-ADC_HandleTypeDef hadc;
-TIM_HandleTypeDef htim6;
-I2C_HandleTypeDef hi2c1;
-
 uint16_t adc_value = 0;           // ADC原始值
 float voltage = 0.0f;             // 电压值
 uint8_t disp_buf[3] = {0,0,0};    // 显示缓存
-/* USER CODE END PV */
-
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_ADC_Init(void);
-//static void MX_I2C1_Init(void);
-static void MX_TIM6_Init(void);
-/* USER CODE BEGIN PFP */
-
-/************************* CH423S初始化 *************************/
-//void CH423_Init(void)
-//{
-//  uint8_t sys_cmd[2] = {CH423_CMD_SYS, CH423_SYS_PARAM};
-//  HAL_StatusTypeDef rs = HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, sys_cmd, 2, 100);
-//  if (rs != HAL_OK){
-//	  return;
-//  }
-//  HAL_Delay(1);
-//}
-
-//
-///* 向CH423S写入命令和数据 */
-//void CH423_Write(uint8_t cmd, uint8_t data)
-//{
-//  uint8_t tx_data[2] = {cmd, data};
-//  HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, tx_data, 2, 100);
-//}
 
 /************************* 数码管显示 *************************/
+//void Disp_Voltage(void)
+//{
+//	CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[disp_buf[0]] & 0x7F));//IO1输出
+//
+//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[1]]);//IO1输出
+//
+//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[2]]);//IO1输出
+//}
+
 void Disp_Voltage(void)
 {
-  // 显示百位
-  if (HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_OC_L, 0x01}, 2, 100) != HAL_OK){
-	  return;
-  }
-  if (HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_IO, SEG_TABLE[disp_buf[0]]}, 2, 100) != HAL_OK){
-	  return;
-  }
-  HAL_Delay(1);
+//	CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[disp_buf[0]] & 0x7F));
+//	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC0_L_DAT );
 
-  // 显示十位
-  HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_OC_L, 0x02}, 2, 100);
-  HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_IO, SEG_TABLE[disp_buf[1]]}, 2, 100);
-  HAL_Delay(1);
-
-  // 显示个位（带小数点）
-  HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_OC_L, 0x04}, 2, 100);
-  HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_IO, SEG_TABLE[disp_buf[2]] & 0x7F}, 2, 100);
-  HAL_Delay(1);
-
-  // 关闭位选
-  HAL_I2C_Master_Transmit(&hi2c1, CH423_I2C_ADDR, (uint8_t[]){CH423_CMD_OC_L, 0x00}, 2, 100);
+//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[1]]);
+//	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC1_L_DAT );
+//
+//	CH423_WriteByte(CH423_SET_IO_CMD | SEG_TABLE[disp_buf[2]]);
+//	CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT );
 }
-
 
 /************************* TIM6中断服务函数 *************************/
 void TIM6_DAC_IRQHandler(void)
@@ -153,32 +125,75 @@ void TIM6_DAC_IRQHandler(void)
   Disp_Voltage();
 }
 
+/* USER CODE END 0 */
 
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
   SystemClock_Config();
 
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_ADC_Init();
-  //MX_I2C1_Init();
   MX_TIM6_Init();
 
-  //CH423_Init();
-  CH423_WriteByte(CH423_SYS_CMD);
-  CH423_WriteByte(CH423_SET_IO_CMD|BIT_IO0_DAT); //Set GPIO_0 HIGH
-  CH423_WriteByte(CH423_SET_IO_CMD|BIT_IO1_DAT); //Set GPIO_0 HIGH
-  CH423_WriteByte(CH423_OC_L_CMD|BIT_OC0_L_DAT);//Set GPO_0 HIGH
-  CH423_WriteByte(CH423_OC_L_CMD|BIT_OC1_L_DAT);//Set GPO_8 HIGH
-
-  if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
-  {
-	 Error_Handler();
+  //共阳级静态驱动，无法满足诉求
+  CH423_WriteByte(CH423_SYS_CMD | BIT_IO_OE);
+  HAL_Delay(5);
+  //初始化
+  CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
+  CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
+  CH423_WriteByte(CH423_SET_IO_CMD | (0x00));
+  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT | BIT_OC1_L_DAT | BIT_OC0_L_DAT);
+  HAL_Delay(5);
+  //测试代码
+  while(1){
+	  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC0_L_DAT);
+	  CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[1] & 0x7F));
+	  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC1_L_DAT);
+	  CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[2]));
+	  CH423_WriteByte(CH423_OC_L_CMD | BIT_OC2_L_DAT);
+  	  CH423_WriteByte(CH423_SET_IO_CMD | (SEG_TABLE[3]));
   }
 
-  while (1){}
+
+  /* USER CODE END 2 */
+  if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
+  {
+	  Error_Handler();
+  }
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+  while (1)
+  {
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
 }
 
 /**
@@ -189,8 +204,10 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSI14;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSI14State = RCC_HSI14_ON;
@@ -198,26 +215,22 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSI14CalibrationValue = 16;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
   RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
   }
 
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C1;
-  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
-  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -230,8 +243,19 @@ void SystemClock_Config(void)
   */
 static void MX_ADC_Init(void)
 {
+
+  /* USER CODE BEGIN ADC_Init 0 */
+
+  /* USER CODE END ADC_Init 0 */
+
   ADC_ChannelConfTypeDef sConfig = {0};
 
+  /* USER CODE BEGIN ADC_Init 1 */
+
+  /* USER CODE END ADC_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
   hadc.Instance = ADC1;
   hadc.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc.Init.Resolution = ADC_RESOLUTION_12B;
@@ -251,6 +275,8 @@ static void MX_ADC_Init(void)
     Error_Handler();
   }
 
+  /** Configure for the selected ADC regular channel to be converted.
+  */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
@@ -258,48 +284,11 @@ static void MX_ADC_Init(void)
   {
     Error_Handler();
   }
-}
+  /* USER CODE BEGIN ADC_Init 2 */
 
-/**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-//static void MX_I2C1_Init(void)
-//{
-//
-//  hi2c1.Instance = I2C1;
-//  hi2c1.Init.Timing = 0x00201D2B;
-//  hi2c1.Init.OwnAddress1 = 0;
-//  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-//  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-//  hi2c1.Init.OwnAddress2 = 0;
-//  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-//  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-//  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-//  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
-//
-//  /** Configure Analogue filter
-//  */
-//  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
-//
-//  /** Configure Digital filter
-//  */
-//  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
-//  /* USER CODE BEGIN I2C1_Init 2 */
-//
-//  /* USER CODE END I2C1_Init 2 */
-//
-//}
+  /* USER CODE END ADC_Init 2 */
+
+}
 
 /**
   * @brief TIM6 Initialization Function
@@ -319,7 +308,7 @@ static void MX_TIM6_Init(void)
   htim6.Instance = TIM6;
   htim6.Init.Prescaler = 0;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 65535;
+  htim6.Init.Period = 10;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
@@ -339,23 +328,33 @@ static void MX_TIM6_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-	__HAL_RCC_GPIOB_CLK_ENABLE();
-	__HAL_RCC_GPIOA_CLK_ENABLE();
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
-	// I2C1引脚（PB6=SCL, PB7=SDA）：复用开漏上拉
-	GPIO_InitTypeDef GPIO_InitStruct = {0};
-	GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
-	GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-	GPIO_InitStruct.Alternate = GPIO_AF1_I2C1;
-	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  /* USER CODE END MX_GPIO_Init_1 */
 
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6|GPIO_PIN_7, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PB6 PB7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6|GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
 	// PA0（ADC输入）：模拟模式
 	GPIO_InitStruct.Pin = GPIO_PIN_0;
 	GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -368,10 +367,13 @@ static void MX_GPIO_Init(void)
   */
 void Error_Handler(void)
 {
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
   }
+  /* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef  USE_FULL_ASSERT
