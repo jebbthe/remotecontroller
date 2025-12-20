@@ -4,7 +4,7 @@
 #include "stm32f0xx_hal.h"
 #include "main.h"
 
-#define DELAY_0_1US HAL_Delay(1);
+#define DELAY_0_1US //HAL_Delay(1);
 
 #define CH423_SCL GPIO_PIN_6
 #define CH423_SCL_Pin_GPIO_Port GPIOB

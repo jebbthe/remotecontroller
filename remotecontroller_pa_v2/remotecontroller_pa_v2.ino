@@ -339,7 +339,7 @@ void setup() {
   }
   Serial.println(F("油门安全正常"));
 
-  showReady();
+  showReady();c:\Users\jebbt\Documents\gitroot\remotecontroller\remotereciver_esp32_2chl_v2\remotereciver_esp32_2chl_v2.ino
 }
 
 void shortBeep(){

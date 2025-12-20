@@ -3,6 +3,9 @@
 #include <ESP32Servo.h>
 #include <printf.h>
 #include <Wire.h>
+#include <Preferences.h>
+#include <esp_system.h>
+#include <esp_task_wdt.h>
 
 // MPU6500 I2C地址
 #define MPU6500_ADDR 0x68
@@ -100,6 +103,27 @@ Servo esc, ch1, ch2, ch3;
 
 unsigned long lastSignalTime = 0;
 
+// 重启诊断相关
+#define RESTART_INFO_NAMESPACE "restart_info"
+#define RESTART_INFO_KEY "last_crash"
+
+// 重启信息结构体
+struct RestartInfo {
+  uint8_t resetReason;           // 重启原因
+  uint32_t resetTime;            // 重启时间戳（从启动开始计算的毫秒数）
+  uint32_t freeHeap;             // 可用堆内存
+  uint32_t minFreeHeap;          // 最小可用堆内存
+  uint32_t maxAllocHeap;         // 最大可分配堆内存
+  uint32_t uptimeBeforeReset;    // 重启前运行时间（秒）
+  uint8_t taskCount;             // 任务数量
+  char resetReasonStr[32];       // 重启原因字符串
+  uint32_t magic;                // 魔数，用于验证数据有效性
+};
+
+#define RESTART_INFO_MAGIC 0xDEADBEEF
+
+Preferences preferences;
+
 //管脚定义
 #define PIN_LED 7             // 信号灯
 #define PIN_ESC 3             // 电调
@@ -150,6 +174,212 @@ static float filteredGyroX = 0, filteredGyroY = 0;
 
 // 添加全局变量用于存储上一次有效的加速度计数据
 float lastAccX = 0, lastAccY = 0, lastAccZ = 0;
+
+// 获取重启原因字符串
+const char* getResetReasonString(esp_reset_reason_t reason) {
+  switch(reason) {
+    case ESP_RST_UNKNOWN:   return "未知原因";
+    case ESP_RST_POWERON:   return "上电复位(正常断电重启)";
+    case ESP_RST_EXT:       return "外部复位";
+    case ESP_RST_SW:        return "软件复位";
+    case ESP_RST_PANIC:     return "异常/Panic";
+    case ESP_RST_INT_WDT:   return "中断看门狗复位";
+    case ESP_RST_TASK_WDT:  return "任务看门狗复位";
+    case ESP_RST_WDT:       return "其他看门狗复位";
+    case ESP_RST_DEEPSLEEP: return "深度睡眠唤醒";
+    case ESP_RST_BROWNOUT:  return "欠压复位";
+    case ESP_RST_SDIO:      return "SDIO复位";
+    default:                return "未定义";
+  }
+}
+
+// 检查是否为正常重启
+bool isNormalRestart(esp_reset_reason_t reason) {
+  // 只有上电复位被认为是正常重启
+  return (reason == ESP_RST_POWERON);
+}
+
+// 保存重启信息到Flash
+void saveRestartInfo(esp_reset_reason_t reason, uint32_t uptime) {
+  RestartInfo info;
+  info.resetReason = (uint8_t)reason;
+  info.resetTime = millis();
+  // 记录重启后的堆内存状态（虽然这不是重启前的状态，但仍有助于诊断）
+  info.freeHeap = ESP.getFreeHeap();
+  info.minFreeHeap = ESP.getMinFreeHeap();
+  info.maxAllocHeap = ESP.getMaxAllocHeap();
+  info.uptimeBeforeReset = uptime;
+  info.taskCount = 0; // ESP32 Arduino框架不直接提供任务计数
+  strncpy(info.resetReasonStr, getResetReasonString(reason), sizeof(info.resetReasonStr) - 1);
+  info.resetReasonStr[sizeof(info.resetReasonStr) - 1] = '\0';
+  info.magic = RESTART_INFO_MAGIC;
+  
+  preferences.begin(RESTART_INFO_NAMESPACE, false);
+  bool success = preferences.putBytes(RESTART_INFO_KEY, &info, sizeof(info)) == sizeof(info);
+  preferences.end();
+  
+  if (success) {
+    Serial.print(F("重启信息已成功保存到Flash: "));
+    Serial.println(info.resetReasonStr);
+  } else {
+    Serial.println(F("警告: 保存重启信息到Flash失败！"));
+  }
+}
+
+// 从Flash读取重启信息
+bool readRestartInfo(RestartInfo* info) {
+  preferences.begin(RESTART_INFO_NAMESPACE, true);
+  size_t len = preferences.getBytes(RESTART_INFO_KEY, info, sizeof(RestartInfo));
+  preferences.end();
+  
+  if (len == sizeof(RestartInfo) && info->magic == RESTART_INFO_MAGIC) {
+    return true;
+  }
+  return false;
+}
+
+// 清除Flash中的重启信息
+void clearRestartInfo() {
+  preferences.begin(RESTART_INFO_NAMESPACE, false);
+  preferences.remove(RESTART_INFO_KEY);
+  preferences.end();
+}
+
+// 打印重启信息到串口
+void printRestartInfo(const RestartInfo* info) {
+  Serial.println(F("\n========== Flash中异常重启信息 =========="));
+  Serial.print(F("重启原因: "));
+  Serial.println(info->resetReasonStr);
+  Serial.print(F("重启原因代码: 0x"));
+  Serial.println(info->resetReason, HEX);
+  Serial.print(F("重启时间戳: "));
+  Serial.print(info->resetTime);
+  Serial.println(F(" ms"));
+  Serial.print(F("重启前运行时间: "));
+  Serial.print(info->uptimeBeforeReset);
+  Serial.println(F(" 秒"));
+  Serial.print(F("可用堆内存: "));
+  Serial.print(info->freeHeap);
+  Serial.println(F(" 字节"));
+  Serial.print(F("最小可用堆内存: "));
+  Serial.print(info->minFreeHeap);
+  Serial.println(F(" 字节"));
+  Serial.print(F("最大可分配堆内存: "));
+  Serial.print(info->maxAllocHeap);
+  Serial.println(F(" 字节"));
+  Serial.println(F("=====================================\n"));
+}
+
+// 初始化看门狗定时器
+void initWatchdog() {
+  esp_err_t err;
+  
+  // ESP32 Arduino框架可能已经自动初始化了看门狗
+  // 先尝试直接添加当前任务到看门狗
+  err = esp_task_wdt_add(NULL);
+  if (err == ESP_OK) {
+    // 成功添加，说明看门狗已经初始化
+    Serial.println(F("看门狗已存在，已添加当前任务到看门狗"));
+    return;
+  }
+  
+  // 如果添加失败（可能是看门狗未初始化），尝试初始化
+  // 配置看门狗超时时间为30秒（增加超时时间以适应setup()中的长时间操作）
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = 30000,       // 30秒超时（足够setup()完成）
+    .idle_core_mask = 0,       // 不监控空闲任务
+    .trigger_panic = true      // panic模式，超时后重启
+  };
+  
+  err = esp_task_wdt_init(&wdt_config);
+  if (err == ESP_OK) {
+    // 初始化成功，添加任务
+    err = esp_task_wdt_add(NULL);
+    if (err == ESP_OK) {
+      Serial.println(F("看门狗定时器已启动（30秒超时）"));
+    } else {
+      Serial.println(F("警告: 添加任务到看门狗失败"));
+    }
+  } else if (err == ESP_ERR_INVALID_STATE) {
+    // 看门狗已经初始化（可能在其他地方），再次尝试添加任务
+    err = esp_task_wdt_add(NULL);
+    if (err == ESP_OK) {
+      Serial.println(F("看门狗已存在，已添加当前任务到看门狗"));
+    } else {
+      Serial.print(F("警告: 添加任务到看门狗失败，错误代码: 0x"));
+      Serial.println(err, HEX);
+    }
+  } else {
+    Serial.print(F("警告: 初始化看门狗失败，错误代码: 0x"));
+    Serial.println(err, HEX);
+  }
+}
+
+// 喂狗（在loop中定期调用）
+void feedWatchdog() {
+  esp_task_wdt_reset();
+}
+
+void initRestartDiagnostics() {
+  esp_reset_reason_t lastReason = esp_reset_reason();
+  const char* reasonStr = getResetReasonString(lastReason);
+  
+  Serial.println(F("\n========== 系统启动诊断 =========="));
+  Serial.print(F("上次重启原因: "));
+  Serial.println(reasonStr);
+  Serial.print(F("重启原因代码: 0x"));
+  Serial.println(lastReason, HEX);
+  Serial.print(F("当前可用堆内存: "));
+  Serial.print(ESP.getFreeHeap());
+  Serial.println(F(" 字节"));
+  Serial.print(F("当前最小可用堆内存: "));
+  Serial.print(ESP.getMinFreeHeap());
+  Serial.println(F(" 字节"));
+  Serial.println(F("==================================\n"));
+  
+  RestartInfo savedInfo;
+  if (readRestartInfo(&savedInfo)) {
+    Serial.println(F("发现之前保存的异常重启记录:"));
+    printRestartInfo(&savedInfo);
+  } else {
+    Serial.println(F("未发现之前保存的异常重启记录\n"));
+  }
+  
+  if (!isNormalRestart(lastReason)) {
+    // 获取上次保存的运行时间（如果存在）
+    uint32_t lastUptime = 0;
+    preferences.begin(RESTART_INFO_NAMESPACE, true);
+    if (preferences.isKey("uptime")) {
+      lastUptime = preferences.getUInt("uptime", 0);
+    }
+    preferences.end();
+    // 保存异常重启信息到Flash
+    Serial.println(F("检测到异常重启，正在保存重启信息..."));
+    clearRestartInfo();
+    saveRestartInfo(lastReason, lastUptime);
+  } else {
+    Serial.println(F("正常上电重启，无需保存重启信息\n"));
+  }
+  
+  preferences.begin(RESTART_INFO_NAMESPACE, false);
+  preferences.putUInt("uptime", 0);
+  preferences.end();
+}
+
+// 更新运行时间（在loop中定期调用）
+void updateUptime() {
+  static unsigned long lastUpdate = 0;
+  unsigned long now = millis();
+  
+  // 每10秒更新一次运行时间
+  if (now - lastUpdate >= 10000) {
+    lastUpdate = now;
+    uint32_t uptimeSeconds = now / 1000;
+    preferences.begin(RESTART_INFO_NAMESPACE, false);
+    preferences.putUInt("uptime", uptimeSeconds);
+    preferences.end();
+  }
+}
 
 void initMPU6500() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
@@ -496,13 +726,22 @@ void setup() {
   SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN); 
    
   Serial.begin(9600);
+  Serial.println(F("Starting..."));
+  delay(100); // 等待串口稳定
   printf_begin();
+  
+  // 首先初始化重启诊断系统（在Serial可用后立即执行）
+  initRestartDiagnostics();
+  
+  // 初始化看门狗定时器
+  initWatchdog();
   
   pinMode(PIN_LED, OUTPUT);
   
   //提示主电源接通，芯片开始工作
   digitalWrite(PIN_LED, HIGH);
   delay(1000);
+  feedWatchdog();  // 喂狗
   digitalWrite(PIN_LED, LOW);
 
   initController();
@@ -511,6 +750,7 @@ void setup() {
 
   //提示核心部件启动成功
   showLight();
+  feedWatchdog();  // 喂狗
 
 #ifndef TEST_MPU6500
   // 安全解锁流程
@@ -521,7 +761,8 @@ void setup() {
   bool throttleConfirmed = false;
   unsigned long startTime = millis();
   
-  while (!throttleConfirmed && (millis() - startTime < 60000)) { // 10秒超时
+  while (!throttleConfirmed && (millis() - startTime < 60000)) { // 60秒超时
+    feedWatchdog();  // 在循环中定期喂狗
     if(radio.available()) {
       ControlData data;
       radio.read(&data, sizeof(data));
@@ -535,13 +776,16 @@ void setup() {
           // 执行解锁序列
           esc.writeMicroseconds(1000); // 确保零油门
           delay(2000);
+          feedWatchdog();  // 喂狗
           
           // 快速闪烁LED表示正在解锁
           for(int i = 0; i < 5; i++) {
             digitalWrite(PIN_LED, HIGH);
             delay(100);
+            feedWatchdog();  // 喂狗
             digitalWrite(PIN_LED, LOW);
             delay(100);
+            feedWatchdog();  // 喂狗
           }
           
           Serial.println(F("电调解锁完成"));
@@ -560,19 +804,24 @@ void setup() {
     while(1) {
       digitalWrite(PIN_LED, HIGH);
       delay(100);
+      feedWatchdog();  // 喂狗
       digitalWrite(PIN_LED, LOW);
       delay(100);
+      feedWatchdog();  // 喂狗
     }
   }
 #endif
 
   Serial.println(F("开始自检"));
   selfCheck();
+  feedWatchdog();  // 喂狗
 
 #ifdef ENABLE_SELFCTL  
   Serial.println(F("开始初始化MPU6500"));
   initMPU6500();
+  feedWatchdog();  // 喂狗
   calibrateGyro();
+  feedWatchdog();  // 喂狗
   lastUpdateTime = micros();
   // 初始化角度为0
   lastPitch = 0;
@@ -580,7 +829,11 @@ void setup() {
   
   // 读取一次传感器数据
   readMPU6500();
+  feedWatchdog();  // 喂狗
 #endif
+  
+  Serial.println(F("系统初始化完成"));
+  feedWatchdog();  // 喂狗
 }
 
 // 改进的陀螺仪校准
@@ -623,6 +876,7 @@ void calibrateGyro() {
     // 进度指示
     if (i % 50 == 0) {
       digitalWrite(PIN_LED, !digitalRead(PIN_LED));
+      feedWatchdog();  // 每50次循环喂一次狗
     }
     delay(10);
   }
@@ -670,10 +924,13 @@ void initController(){
 void showLight(){
   digitalWrite(PIN_LED, HIGH);
   delay(500);
+  feedWatchdog();  // 喂狗
   digitalWrite(PIN_LED, LOW);
   delay(500);
+  feedWatchdog();  // 喂狗
   digitalWrite(PIN_LED, HIGH);
   delay(500);
+  feedWatchdog();  // 喂狗
   digitalWrite(PIN_LED, LOW);
 }
 
@@ -681,7 +938,10 @@ void initRF(){
   if (!radio.begin()){
     Serial.println("radio.begin failed!");
     radio.printPrettyDetails();
-    while(1);
+    while(1) {
+      feedWatchdog();  // 喂狗，避免重启
+      delay(100);
+    }
   }  
 
   radio.setChannel(108); 
@@ -701,18 +961,21 @@ void selfCheck(){
   ch2.write(90);
   ch3.write(90);
   delay(500);
+  feedWatchdog();  // 喂狗
 
   //低极值
   ch1.write(45);
   ch2.write(45);
   ch3.write(45);
   delay(500);
+  feedWatchdog();  // 喂狗
 
   //高极值
   ch1.write(135);
   ch2.write(135);
   ch3.write(135);
   delay(500);
+  feedWatchdog();  // 喂狗
 
   //回正
   ch1.write(90);
@@ -721,6 +984,7 @@ void selfCheck(){
 
   digitalWrite(PIN_LED, HIGH);
   delay(1000);
+  feedWatchdog();  // 喂狗
   digitalWrite(PIN_LED, LOW);
 }
 
@@ -733,6 +997,12 @@ void testMPU(){
 }
 
 void loop() {
+  // 更新运行时间（用于重启诊断）
+  updateUptime();
+  
+  // 喂看门狗
+  feedWatchdog();
+  
 #ifdef TEST_MPU6500  
   delay(100);
   return testMPU();

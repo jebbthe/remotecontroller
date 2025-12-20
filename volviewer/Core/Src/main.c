@@ -20,10 +20,10 @@
 #include "main.h"
 #include "ch423.h"
 
-#define TEST_LED
+//#define TEST_LED
 #define MODE_STATIC 0
 #define MODE_DYNAMIC 1
-#define TEST_MODE MODE_STATIC
+#define TEST_MODE MODE_DYNAMIC
 
 ADC_HandleTypeDef hadc;
 
@@ -50,16 +50,16 @@ const uint8_t SEG_TABLE_S[10] = {
 
 // 共阴数码管段码表（0~9，段a~g对应IO0~IO6，高电平亮）
 const uint8_t SEG_TABLE_D[10] = {
-    0xC0, // 0
-    0xF9, // 1
-    0xA4, // 2
-    0xB0, // 3
-    0x99, // 4
-    0x92, // 5
-    0x82, // 6
-    0xF8, // 7
-    0x80, // 8
-    0x90  // 9
+	0x3F, // 0
+	0x06, // 1
+	0x5B, // 2
+	0x4F, // 3
+	0x66, // 4
+	0x6D, // 5
+	0x7D, // 6
+	0x07, // 7
+	0x7F, // 8
+	0x6F  // 9
 };
 
 
@@ -70,7 +70,7 @@ uint8_t disp_buf[3] = {0,0,0};    // 显示缓存
 /************************* 数码管显示 *************************/
 void Disp_Voltage(void)
 {
-	CH423_WriteByte(CH423_SET_IO0_CMD | (SEG_TABLE_D[disp_buf[0]] & 0x7F));
+	CH423_WriteByte(CH423_SET_IO0_CMD | (SEG_TABLE_D[disp_buf[0]] | 0x80));
 	CH423_WriteByte(CH423_SET_IO1_CMD | SEG_TABLE_D[disp_buf[1]]);
 	CH423_WriteByte(CH423_SET_IO2_CMD | SEG_TABLE_D[disp_buf[2]]);
 }
@@ -91,6 +91,7 @@ void TIM6_DAC_IRQHandler(void)
 
   // 计算电压
   voltage = (adc_value * 3.3f) / 4096.0f;
+  voltage = voltage /0.3571f;
   uint16_t volt_int = (uint16_t)(voltage * 100);
 
   // 分解显示
@@ -129,7 +130,7 @@ static void testDynamicLED(){
 	HAL_Delay(5);
 
 	while(1){
-		CH423_WriteByte(CH423_SET_IO0_CMD | (SEG_TABLE_D[1] & 0x7F));
+		CH423_WriteByte(CH423_SET_IO0_CMD | (SEG_TABLE_D[1] & 0x80));
 		CH423_WriteByte(CH423_SET_IO1_CMD | (SEG_TABLE_D[2]));
 		CH423_WriteByte(CH423_SET_IO2_CMD | (SEG_TABLE_D[3]));
 	}
@@ -150,10 +151,13 @@ int main(void)
 #ifdef TEST_LED
 	#if TEST_MODE == 0
 	  testStaticLED();
-	#elif
+	#else
 	  testDynamicLED();
 	#endif
 #endif
+
+  CH423_WriteByte(CH423_SYS_CMD | BIT_IO_OE | BIT_DEC_L);
+  HAL_Delay(5);
 
   MX_TIM6_Init();
   if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
@@ -258,9 +262,9 @@ static void MX_TIM6_Init(void)
   /* USER CODE END TIM6_Init 0 */
 
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 0;
+  htim6.Init.Prescaler = 47999;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 10;
+  htim6.Init.Period = 999;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
