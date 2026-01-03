@@ -334,61 +334,36 @@ static void RTC6705_SPI_Init(void)
   // 但当前代码假设SPI_SE由硬件上拉或外部电路控制
 }
 
-/**
-  * @brief  通过SPI向RTC6705寄存器写入数据
-  * @param  reg_addr: 寄存器地址 (0x00-0x0F)
-  * @param  data: 20位数据
-  * @retval None
-  * @note   RTC6705 SPI格式: 24位 = [3位地址][20位数据][1位填充]
-  *         数据在时钟上升沿采样，MSB先发送
-  */
 static void RTC6705_SPI_Write(uint8_t reg_addr, uint32_t data)
 {
-	uint32_t spi_word = 0;
-	uint8_t i;
+  uint32_t spi_word = 0;
+  uint8_t i;
 
-	// 数据格式：4位地址 + 1位写控制 + 20位数据（共25位）
-	// 地址：reg_addr[3:0]（仅低4位有效），写控制位=0，数据：data[19:0]
-	spi_word |= ((uint32_t)(reg_addr & 0x0F) << 21);  // 4位地址移到[24:21]位
-	spi_word |= ((uint32_t)SPI_WRITE_CTRL << 20);    // 1位写控制移到[20]位
-	spi_word |= (data & 0x000FFFFF);                // 20位数据移到[19:0]位
+  // 数据格式：4位地址 + 1位写控制(0) + 20位数据（共25位）
+  spi_word |= ((uint32_t)(reg_addr & 0x0F) << 21);  // 4位地址（0x00~0x0F）
+  spi_word |= ((uint32_t)SPI_WRITE_CTRL << 20);    // 写控制位=0
+  spi_word |= (data & 0x000FFFFF);                // 20位数据
 
-	// CS/LE拉低开始传输（低电平有效）
-	HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_RESET);
-	for (volatile uint8_t d = 0; d < 10; d++);  // 建立时间
+  HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_RESET);
+  HAL_Delay(1);
 
-	// 修正：LSB先发送（数据手册要求）
-	for (i = 0; i < SPI_DATA_BITS; i++)
-	{
-		// 取当前最低位数据
-		if (spi_word & 0x01)
-		{
-		  HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_SET);
-		}
-		else
-		{
-		  HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_RESET);
-		}
+  // LSB先发送（核心修正）
+  for (i = 0; i < 25; i++)
+  {
+    // 取当前最低位
+    HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, (spi_word & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
-		// 数据建立时间
-		for (volatile uint8_t d = 0; d < 5; d++);
+    // 时钟上升沿采样
+    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_SET);
+    HAL_Delay(1);
+    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
+    HAL_Delay(1);
 
-		// 时钟上升沿采样（数据手册要求）
-		HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_SET);
-		for (volatile uint8_t d = 0; d < 5; d++);
+    spi_word >>= 1;  // 右移，准备下一位（LSB优先）
+  }
 
-		// 时钟下降沿
-		HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
-		for (volatile uint8_t d = 0; d < 5; d++);
-
-		// 数据右移，准备下一位（LSB先发送）
-		spi_word >>= 1;
-	}
-
-	// CS/LE拉高锁存数据
-	for (volatile uint8_t d = 0; d < 5; d++);
-	HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);
-	for (volatile uint8_t d = 0; d < 10; d++);  // 锁存时间
+  HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);
+  HAL_Delay(1);
 }
 
 /**
@@ -399,7 +374,7 @@ static void RTC6705_SPI_Write(uint8_t reg_addr, uint32_t data)
 static void RTC6705_ResetState(void)
 {
   // 写入状态寄存器(0x0F)，数据为0（复位命令）
-  RTC6705_SPI_Write(RTC6705_REG_STATE, 0x00000000);
+  //RTC6705_SPI_Write(RTC6705_REG_STATE, 0x00000000);
   HAL_Delay(10);
 }
 
@@ -443,58 +418,45 @@ static void RTC6705_PowerAmpOn(void)
   HAL_Delay(10);
 }
 
-/**
-  * @brief  设置RTC6705发射频率（参考OpenVTx实现优化）
-  * @param  frequency_mhz: 频率值 (MHz, 例如: 5809)
-  * @retval None
-  * @note   采用OpenVTx的频率计算方式，更可靠
-  */
 static void RTC6705_SetFrequency(uint16_t frequency_mhz)
 {
   uint32_t synth_reg_a, synth_reg_b;
   uint32_t N, A;
-  const uint32_t Fosc = 8000;  // 晶振频率8MHz
-  const uint32_t R = 400;     // R分频器值（数据手册默认）
+  const uint32_t Fosc = 8000;  // 8MHz
+  const uint32_t R = 400;      // 手册默认R分频器
   
-  // 限制频率范围
-  if (frequency_mhz < 5645) frequency_mhz = 5645;
-  if (frequency_mhz > 5945) frequency_mhz = 5945;
+  // 频率限制
+  frequency_mhz = (frequency_mhz < 5645) ? 5645 : (frequency_mhz > 5945) ? 5945 : frequency_mhz;
   
-  // 数据手册标准公式：FRF = 2*(N*64 + A)*(Fosc/R)
-  // 变形计算N和A：N*64 + A = (FRF * R) / (2 * Fosc)
-  uint32_t temp = (uint32_t)frequency_mhz * R / (2 * Fosc / 1000);  // 单位转换为kHz避免溢出
-  N = temp / 64;    // N分频器（13位）
-  A = temp % 64;    // A分频器（7位）
+  // 标准公式：FRF = 2*(N*64+A)*(Fosc/R) → 变形计算N/A
+  uint32_t temp = (uint32_t)frequency_mhz * R / (2 * Fosc / 1000);
+  N = temp / 64;
+  A = temp % 64;
   
-  // 配置合成器寄存器B（0x01）：位[13:9]=R，位[8:0]=N高位，位[6:0]=A
-  synth_reg_b = 0x00000000;
-  synth_reg_b |= (R & 0x1F) << 9;                // R分频器（位13:9）
-  synth_reg_b |= ((N >> 7) & 0x1FF) << 0;        // N高位（9位，位8:0）
-  synth_reg_b |= (A & 0x3F) << 14;               // A分频器（7位，位20:14）
-  
-  // 配置合成器寄存器A（0x00）：位[11]=PLL使能，位[10:0]=N低位
-  synth_reg_a = RTC6705_SYNTH_REG_A_DEFAULT;     // 包含PLL使能位（位11=1）
-  synth_reg_a |= (N & 0x7F) << 0;                // N低位（7位，位6:0）
-  
-  // 修正写入顺序：先写寄存器B，再写寄存器A（数据手册要求）
-  RTC6705_PowerAmpOff();                         // 写之前关闭PA，避免乱发射
+  // 配置寄存器B（先写B）：R=400 + N高位 + A
+  synth_reg_b = 0;
+  synth_reg_b |= (R & 0x1F) << 9;          // R分频器（位13:9）
+  synth_reg_b |= ((N >> 7) & 0x1FF) << 0;  // N高位（9位）
+  synth_reg_b |= (A & 0x3F) << 14;         // A（7位）
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, synth_reg_b);
   HAL_Delay(10);
   
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, synth_reg_b);  // 先写B
-  HAL_Delay(20);
+  // 配置寄存器A（后写A）：N低位 + PLL使能
+  synth_reg_a = 0;
+  synth_reg_a |= (N & 0x7F) << 0;          // N低位（7位）
+  synth_reg_a |= 0x00000800;              // 位11=1，使能PLL
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);
+  HAL_Delay(10);
   
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);  // 后写A（使能PLL）
-  HAL_Delay(20);
-  
-  // 更新当前频率和定时器
+  // 更新频率和定时器
   current_frequency_mhz = frequency_mhz;
   powerUpAfterSettleTime = HAL_GetTick() + RTC6705_PLL_SETTLE_TIME_MS;
   
-  // LED指示
   LED_ChipComm_On();
   HAL_Delay(50);
   LED_ChipComm_Off();
 }
+
 
 /**
   * @brief  PLL锁定后开启PA（参考OpenVTx实现）
@@ -528,12 +490,8 @@ static void RTC6705_PowerUpAfterPLLSettleTime(void)
 static void RTC6705_Init(void)
 {
   // 等待芯片上电稳定（给足够时间让芯片完成内部初始化）
-  HAL_Delay(100);
-  
-  // 参考OpenVTx：复位状态寄存器，确保从已知状态开始
-  RTC6705_ResetState();
-  HAL_Delay(20);
-  
+  HAL_Delay(200);
+
   // 配置5G VCO控制寄存器（可选，使用默认值）
   RTC6705_SPI_Write(RTC6705_REG_VCO_5G, 0x00000A00);
   HAL_Delay(20);
@@ -542,8 +500,6 @@ static void RTC6705_Init(void)
   RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, RTC6705_SYNTH_REG_B_DEFAULT);
   HAL_Delay(20);
 
-  // 参考OpenVTx：直接调用WriteFrequency，内部会关闭PA、复位SynthRegA、写入频率
-  // WriteFrequency函数会设置powerUpAfterSettleTime定时器
   RTC6705_SetFrequency(5809);
 }
 
