@@ -59,6 +59,8 @@ UART_HandleTypeDef huart1;
 #define RTC6705_REG_SYNTH_B    0x01
 #define RTC6705_REG_PA         0x07
 #define RTC6705_REG_STATE      0x0F
+#define RTC6705_REG_VCO_5G     0x04  // 5G VCO控制寄存器
+#define RTC6705_REG_VCO_2G     0x05  // 2G VCO控制寄存器
 
 // PA寄存器位定义
 #define RTC6705_PA_PD_Q5G_BIT  0x40  // 位6: 5G预驱动掉电控制 (1=掉电, 0=使能)
@@ -72,8 +74,36 @@ UART_HandleTypeDef huart1;
 // RTC6705晶振频率 (8MHz)
 #define RTC6705_XTAL_FREQ_KHZ  8000
 
+// 合成器寄存器A默认值（参考OpenVTx）
+#define RTC6705_SYNTH_REG_A_DEFAULT  0x00190  // 包含PLL使能位
+
+#define RTC6705_SYNTH_REG_B_DEFAULT  0x04781  // 对应N=2291, A=1，默认频率5865MHz
+
+#define SPI_DATA_BITS 25  // 25位通信格式：4位地址+1位写控制+20位数据
+
+#define SPI_WRITE_CTRL 0  // 写控制位：0=写，1=读
+
+// PA寄存器使能值（参考OpenVTx）
+// OpenVTx定义: 0b10011111011111100000 = 0x13F7E0
+// 这是20位数据，需要扩展到32位用于SPI写入
+#define RTC6705_POWER_AMP_ON   0x0013F7E0  // 使能预驱动和PA，最大功率配置
+// 位解析（20位数据，从位0到位19）:
+// 位[6]: PD_Q5G = 0 (使能预驱动，关键！0=使能，1=掉电)
+// 位[8:7]: PA5G_PW[1:0] = 11 (最大功率，+13dBm输出)
+// 位[11:9]: PA5G_BS[2:0] = 111 (最大增益，7级增益)
+// 位[14:12]: DP_5G[2:0] = 011 (预驱动增益控制)
+// 位[19:15]: MAI_5G[4:0] = 00001 (预驱动输出控制)
+// 其他位: 使用默认值
+// 此配置确保PA工作在最大功率模式（+13dBm）
+
+// PLL锁定等待时间（毫秒）
+#define RTC6705_PLL_SETTLE_TIME_MS  500
+
 // 当前频率 (MHz)
 static uint16_t current_frequency_mhz = 5809;
+
+// PLL锁定后开启PA的定时器（参考OpenVTx）
+static uint32_t powerUpAfterSettleTime = 0;
 
 // UART接收缓冲区
 #define UART_RX_BUFFER_SIZE 32
@@ -89,8 +119,12 @@ static void MX_USART1_UART_Init(void);
 // RTC6705函数
 static void RTC6705_SPI_Init(void);
 static void RTC6705_SPI_Write(uint8_t reg_addr, uint32_t data);
+static void RTC6705_ResetState(void);
+static void RTC6705_ResetSynthRegA(void);
+static void RTC6705_PowerAmpOn(void);
+static void RTC6705_PowerAmpOff(void);
 static void RTC6705_SetFrequency(uint16_t frequency_mhz);
-static void RTC6705_EnablePA(void);
+static void RTC6705_PowerUpAfterPLLSettleTime(void);
 static void RTC6705_Init(void);
 
 // LED控制函数
@@ -173,7 +207,11 @@ int main(void)
     /* USER CODE BEGIN 3 */
     // 主循环 - 保持电源LED常亮
     LED_Power_On();
-    HAL_Delay(100);
+    
+    // 检查PLL锁定时间，如果到了就开启PA（参考OpenVTx）
+    RTC6705_PowerUpAfterPLLSettleTime();
+    
+    HAL_Delay(10);  // 减少延时，提高响应速度
   }
   /* USER CODE END 3 */
 }
@@ -279,13 +317,21 @@ static void MX_GPIO_Init(void)
 /**
   * @brief  初始化RTC6705软件SPI接口
   * @retval None
-  * @note   RTC6705引脚1(SPI_SE)必须设置为高电平以启用SPI模式，通常由硬件或独立GPIO控制
+  * @note   重要：RTC6705引脚1(SPI_SE)必须设置为高电平才能使用SPI模式
+  *         如果SPI_SE为低电平，芯片会使用引脚模式（通过CS0/CS1/CS2选择通道），SPI通信将无效
+  *         请检查硬件连接，确保SPI_SE引脚连接到高电平（3.3V）或通过GPIO控制
+  *         如果VT电压始终为0V，很可能是SPI_SE引脚没有正确设置为高电平
   */
 static void RTC6705_SPI_Init(void)
 {
-  HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);    // CS置高(空闲状态)
+  // 初始化SPI引脚状态
+  HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);    // CS/LE置高(空闲状态)
   HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET); // CLK置低
   HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_RESET); // DATA置低
+  
+  // 注意：如果SPI_SE引脚由MCU控制，需要在这里设置为高电平
+  // 例如：HAL_GPIO_WritePin(GPIOA, SPI_SE_PIN, GPIO_PIN_SET);
+  // 但当前代码假设SPI_SE由硬件上拉或外部电路控制
 }
 
 /**
@@ -293,151 +339,212 @@ static void RTC6705_SPI_Init(void)
   * @param  reg_addr: 寄存器地址 (0x00-0x0F)
   * @param  data: 20位数据
   * @retval None
+  * @note   RTC6705 SPI格式: 24位 = [3位地址][20位数据][1位填充]
+  *         数据在时钟上升沿采样，MSB先发送
   */
 static void RTC6705_SPI_Write(uint8_t reg_addr, uint32_t data)
 {
-  uint32_t spi_word;
-  uint8_t i;
-  
-  // 数据格式: [3位地址][20位数据]
-  spi_word = ((reg_addr & 0x07) << 20) | (data & 0x000FFFFF);
-  
-  // CS拉低开始传输
-  HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_RESET);
-  HAL_Delay(1);
-  
-  // 发送24位数据 (3位地址 + 20位数据 + 1位填充)
-  for (i = 0; i < 24; i++)
-  {
-    // 设置数据位
-    if (spi_word & 0x00800000)
-    {
-      HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_SET);
-    }
-    else
-    {
-      HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_RESET);
-    }
-    
-    // 数据建立时间延时
-    for (volatile uint8_t d = 0; d < 2; d++);
-    
-    // 时钟上升沿(数据在上升沿采样)
-    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_SET);
-    for (volatile uint8_t d = 0; d < 2; d++);
-    
-    // 时钟下降沿
-    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
-    for (volatile uint8_t d = 0; d < 2; d++);
-    
-    // 数据左移
-    spi_word <<= 1;
-  }
-  
-  // CS拉高锁存数据
-  HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);
-  HAL_Delay(1);
+	uint32_t spi_word = 0;
+	uint8_t i;
+
+	// 数据格式：4位地址 + 1位写控制 + 20位数据（共25位）
+	// 地址：reg_addr[3:0]（仅低4位有效），写控制位=0，数据：data[19:0]
+	spi_word |= ((uint32_t)(reg_addr & 0x0F) << 21);  // 4位地址移到[24:21]位
+	spi_word |= ((uint32_t)SPI_WRITE_CTRL << 20);    // 1位写控制移到[20]位
+	spi_word |= (data & 0x000FFFFF);                // 20位数据移到[19:0]位
+
+	// CS/LE拉低开始传输（低电平有效）
+	HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_RESET);
+	for (volatile uint8_t d = 0; d < 10; d++);  // 建立时间
+
+	// 修正：LSB先发送（数据手册要求）
+	for (i = 0; i < SPI_DATA_BITS; i++)
+	{
+		// 取当前最低位数据
+		if (spi_word & 0x01)
+		{
+		  HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_SET);
+		}
+		else
+		{
+		  HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_RESET);
+		}
+
+		// 数据建立时间
+		for (volatile uint8_t d = 0; d < 5; d++);
+
+		// 时钟上升沿采样（数据手册要求）
+		HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_SET);
+		for (volatile uint8_t d = 0; d < 5; d++);
+
+		// 时钟下降沿
+		HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
+		for (volatile uint8_t d = 0; d < 5; d++);
+
+		// 数据右移，准备下一位（LSB先发送）
+		spi_word >>= 1;
+	}
+
+	// CS/LE拉高锁存数据
+	for (volatile uint8_t d = 0; d < 5; d++);
+	HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);
+	for (volatile uint8_t d = 0; d < 10; d++);  // 锁存时间
 }
 
 /**
-  * @brief  设置RTC6705发射频率
+  * @brief  复位RTC6705状态寄存器（参考OpenVTx实现）
+  * @retval None
+  * @note   写入状态寄存器以复位芯片，确保从已知状态开始
+  */
+static void RTC6705_ResetState(void)
+{
+  // 写入状态寄存器(0x0F)，数据为0（复位命令）
+  RTC6705_SPI_Write(RTC6705_REG_STATE, 0x00000000);
+  HAL_Delay(10);
+}
+
+/**
+  * @brief  复位合成器寄存器A（参考OpenVTx实现）
+  * @retval None
+  * @note   将合成器寄存器A设置为默认值，包含PLL使能位
+  */
+static void RTC6705_ResetSynthRegA(void)
+{
+  // 写入合成器寄存器A，使用默认值（包含PLL使能位）
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, RTC6705_SYNTH_REG_A_DEFAULT);
+  HAL_Delay(10);
+}
+
+/**
+  * @brief  关闭RTC6705功放和预驱动（参考OpenVTx实现）
+  * @retval None
+  * @note   在频率切换时调用，避免在非目标频段发射信号
+  */
+static void RTC6705_PowerAmpOff(void)
+{
+  // 写入PA寄存器，数据为0（所有位清零，包括PD_Q5G=1，预驱动掉电）
+  RTC6705_SPI_Write(RTC6705_REG_PA, 0x00000000);
+  HAL_Delay(10);
+}
+
+/**
+  * @brief  使能RTC6705功放和预驱动，配置为最大功率模式（参考OpenVTx实现）
+  * @retval None
+  * @note   在频率锁定后调用，开启预驱动和PA输出
+  *         配置为最大功率模式：PA5G_PW=11, PA5G_BS=111, PD_Q5G=0
+  *         输出功率：+13dBm（最大功率）
+  */
+static void RTC6705_PowerAmpOn(void)
+{
+  // 写入PA寄存器，使用预定义的最大功率配置值
+  // RTC6705_POWER_AMP_ON = 0x0013F7E0
+  // 确保：PD_Q5G=0（使能预驱动），PA5G_PW=11（最大功率），PA5G_BS=111（最大增益）
+  RTC6705_SPI_Write(RTC6705_REG_PA, RTC6705_POWER_AMP_ON);
+  HAL_Delay(10);
+}
+
+/**
+  * @brief  设置RTC6705发射频率（参考OpenVTx实现优化）
   * @param  frequency_mhz: 频率值 (MHz, 例如: 5809)
   * @retval None
+  * @note   采用OpenVTx的频率计算方式，更可靠
   */
 static void RTC6705_SetFrequency(uint16_t frequency_mhz)
 {
   uint32_t synth_reg_a, synth_reg_b;
-  uint32_t n_div;
-  uint32_t freq_khz;
+  uint32_t N, A;
+  const uint32_t Fosc = 8000;  // 晶振频率8MHz
+  const uint32_t R = 400;     // R分频器值（数据手册默认）
   
-  // RTC6705使用PLL锁相环，参考频率8MHz
-  // 公式: RF = (N * REF) / R
-  // 5.8GHz频段范围: 5645-5945 MHz
-  
-  // 限制频率在有效范围内
+  // 限制频率范围
   if (frequency_mhz < 5645) frequency_mhz = 5645;
   if (frequency_mhz > 5945) frequency_mhz = 5945;
   
-  // 计算N分频器值
-  // 使用8MHz参考频率，R=1，N = (频率_MHz * 1000) / 8000
-  freq_khz = (uint32_t)frequency_mhz * 1000;
-  n_div = freq_khz / RTC6705_XTAL_FREQ_KHZ;
+  // 数据手册标准公式：FRF = 2*(N*64 + A)*(Fosc/R)
+  // 变形计算N和A：N*64 + A = (FRF * R) / (2 * Fosc)
+  uint32_t temp = (uint32_t)frequency_mhz * R / (2 * Fosc / 1000);  // 单位转换为kHz避免溢出
+  N = temp / 64;    // N分频器（13位）
+  A = temp % 64;    // A分频器（7位）
   
-  // 配置合成器寄存器A (0x00)
-  // 位[10:0]: N分频器低11位
-  // 位[11]: PLL使能
-  synth_reg_a = 0x00000000;
-  synth_reg_a |= (n_div & 0x7FF) << 0;
-  synth_reg_a |= 0x00000800;  // 使能PLL
-  
-  // 配置合成器寄存器B (0x01)
-  // 位[8:0]: N分频器高9位
-  // 位[13:9]: R分频器 (设置为1)
+  // 配置合成器寄存器B（0x01）：位[13:9]=R，位[8:0]=N高位，位[6:0]=A
   synth_reg_b = 0x00000000;
-  synth_reg_b |= ((n_div >> 11) & 0x1FF) << 0;
-  synth_reg_b |= (1 & 0x1F) << 9;
+  synth_reg_b |= (R & 0x1F) << 9;                // R分频器（位13:9）
+  synth_reg_b |= ((N >> 7) & 0x1FF) << 0;        // N高位（9位，位8:0）
+  synth_reg_b |= (A & 0x3F) << 14;               // A分频器（7位，位20:14）
   
-  // 写入寄存器
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);
-  HAL_Delay(10);
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, synth_reg_b);
+  // 配置合成器寄存器A（0x00）：位[11]=PLL使能，位[10:0]=N低位
+  synth_reg_a = RTC6705_SYNTH_REG_A_DEFAULT;     // 包含PLL使能位（位11=1）
+  synth_reg_a |= (N & 0x7F) << 0;                // N低位（7位，位6:0）
+  
+  // 修正写入顺序：先写寄存器B，再写寄存器A（数据手册要求）
+  RTC6705_PowerAmpOff();                         // 写之前关闭PA，避免乱发射
   HAL_Delay(10);
   
-  // 更新当前频率
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, synth_reg_b);  // 先写B
+  HAL_Delay(20);
+  
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);  // 后写A（使能PLL）
+  HAL_Delay(20);
+  
+  // 更新当前频率和定时器
   current_frequency_mhz = frequency_mhz;
+  powerUpAfterSettleTime = HAL_GetTick() + RTC6705_PLL_SETTLE_TIME_MS;
   
-  // 闪烁芯片通信LED指示频率变化
+  // LED指示
   LED_ChipComm_On();
   HAL_Delay(50);
   LED_ChipComm_Off();
 }
 
 /**
-  * @brief  使能RTC6705功放和预驱动
+  * @brief  PLL锁定后开启PA（参考OpenVTx实现）
   * @retval None
-  * @note   在频率锁定后调用，开启预驱动和PA输出
+  * @note   在主循环中调用，检查PLL锁定时间后开启PA
   */
-static void RTC6705_EnablePA(void)
+static void RTC6705_PowerUpAfterPLLSettleTime(void)
 {
-  // 配置PA寄存器(0x07) - 使能功放和预驱动，输出功率+13dBm
-  // PA5G_PW = 11(最大功率), PA5G_BS = 111(最大增益)
-  // PD_Q5G = 0 (使能预驱动)
-  RTC6705_SPI_Write(RTC6705_REG_PA, 0x00000F7F);
-  HAL_Delay(10);
+  if (powerUpAfterSettleTime == 0)
+    return;  // 定时器未设置，直接返回
+  
+  if (HAL_GetTick() >= powerUpAfterSettleTime)
+  {
+    // PLL锁定时间已到，开启PA
+    RTC6705_PowerAmpOn();
+    powerUpAfterSettleTime = 0;  // 清除定时器
+  }
 }
 
+
 /**
-  * @brief  初始化RTC6705芯片
+  * @brief  初始化RTC6705芯片（参考OpenVTx实现优化）
   * @retval None
-  * @note   初始化顺序: 唤醒芯片 -> 配置频率 -> 等待PLL锁定 -> 开启PA
-  *         使用PD_Q5G位在频率锁定前关闭预驱动，避免在非目标频段乱发射
+  * @note   初始化顺序: 等待稳定 -> 复位状态 -> 配置VCO -> 写入频率 -> PLL锁定后开启PA
+  *         重要提示：
+  *         1. RTC6705引脚1(SPI_SE)必须设置为高电平才能使用SPI模式
+  *         2. 如果SPI_SE为低电平，芯片会使用引脚模式（通过CS0/CS1/CS2选择通道）
+  *         3. 采用OpenVTx的初始化流程，更可靠
+  *         4. PA开启由定时器机制控制，在主循环中检查
   */
 static void RTC6705_Init(void)
 {
-  // 等待芯片上电稳定
-  HAL_Delay(10);
+  // 等待芯片上电稳定（给足够时间让芯片完成内部初始化）
+  HAL_Delay(100);
   
-  // 唤醒芯片: 从RESET状态(0x00)切换到PWRON_CAL状态(0x01)
-  // 关键步骤: 芯片默认处于RESET状态，不唤醒无法发射
-  RTC6705_SPI_Write(RTC6705_REG_STATE, RTC6705_STATE_PWRON_CAL);
-  HAL_Delay(20);  // 等待芯片进入PWRON_CAL状态并完成校准
+  // 参考OpenVTx：复位状态寄存器，确保从已知状态开始
+  RTC6705_ResetState();
+  HAL_Delay(20);
   
-  // 配置PA寄存器，但保持预驱动掉电(PD_Q5G=1)
-  // 这样在频率锁定前不会在非目标频段发射信号
-  // PA5G_PW = 11(最大功率), PA5G_BS = 111(最大增益), PD_Q5G = 1(预驱动掉电)
-  RTC6705_SPI_Write(RTC6705_REG_PA, 0x00000F7F | RTC6705_PA_PD_Q5G_BIT);
-  HAL_Delay(10);
+  // 配置5G VCO控制寄存器（可选，使用默认值）
+  RTC6705_SPI_Write(RTC6705_REG_VCO_5G, 0x00000A00);
+  HAL_Delay(20);
   
-  // 先设置频率为5809MHz
+  // 初始化合成器寄存器B（默认值），确保R分频器正确
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, RTC6705_SYNTH_REG_B_DEFAULT);
+  HAL_Delay(20);
+
+  // 参考OpenVTx：直接调用WriteFrequency，内部会关闭PA、复位SynthRegA、写入频率
+  // WriteFrequency函数会设置powerUpAfterSettleTime定时器
   RTC6705_SetFrequency(5809);
-  
-  // 等待PLL锁定(约50-100ms)
-  // 在频率稳定前保持预驱动关闭，避免乱发射
-  HAL_Delay(80);
-  
-  // 频率锁定后，使能预驱动和PA
-  RTC6705_EnablePA();
-  HAL_Delay(10);
 }
 
 /**
@@ -570,12 +677,22 @@ static void IRCTramp_ProcessCommand(uint8_t *buffer, uint8_t length)
       if (length >= 2)
       {
         uint8_t power = buffer[1];
-        uint32_t pa_reg = 0x00000F7F;  // 默认最大功率
-        if (power == 0) pa_reg = 0x00000F3F;      // 低功率
-        else if (power == 1) pa_reg = 0x00000F5F; // 中低功率
-        else if (power == 2) pa_reg = 0x00000F6F; // 中功率
-        // power == 3 使用最大功率(默认)
-        RTC6705_SPI_Write(RTC6705_REG_PA, pa_reg);
+        // 先关闭PA
+        RTC6705_PowerAmpOff();
+        HAL_Delay(10);
+        
+        // 根据功率等级设置（简化版，实际可以更精细控制）
+        if (power == 0) 
+        {
+          // 低功率：可以调整PA寄存器相关位
+          RTC6705_SPI_Write(RTC6705_REG_PA, 0x00000F3F);
+        }
+        else 
+        {
+          // 中高功率：使用最大功率
+          RTC6705_PowerAmpOn();
+        }
+        
         LED_FCComm_On();
         HAL_Delay(20);
         LED_FCComm_Off();

@@ -52,6 +52,12 @@ default.size.stdout \
 OBJDUMP_LIST += \
 fpv_video.list \
 
+OBJCOPY_HEX += \
+fpv_video.hex \
+
+OBJCOPY_BIN += \
+fpv_video.bin \
+
 
 # 所有目标
 all: main-build
@@ -75,12 +81,22 @@ fpv_video.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo '已结束构建： $@'
 	@echo ' '
 
+fpv_video.hex: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O ihex $(EXECUTABLES) "fpv_video.hex"
+	@echo '已结束构建： $@'
+	@echo ' '
+
+fpv_video.bin: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O binary $(EXECUTABLES) "fpv_video.bin"
+	@echo '已结束构建： $@'
+	@echo ' '
+
 # 其他目标
 clean:
-	-$(RM) default.size.stdout fpv_video.elf fpv_video.list fpv_video.map
+	-$(RM) default.size.stdout fpv_video.bin fpv_video.elf fpv_video.hex fpv_video.list fpv_video.map
 	-@echo ' '
 
-secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
+secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST) $(OBJCOPY_HEX) $(OBJCOPY_BIN)
 
 fail-specified-linker-script-missing:
 	@echo 'Error: Cannot find the specified linker script. Check the linker settings in the build configuration.'
