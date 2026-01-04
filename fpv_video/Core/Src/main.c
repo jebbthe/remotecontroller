@@ -57,6 +57,7 @@ UART_HandleTypeDef huart1;
 // RTC6705寄存器地址
 #define RTC6705_REG_SYNTH_A    0x00
 #define RTC6705_REG_SYNTH_B    0x01
+#define RTC6705_REG_VCO_DFC_CTL 0x03
 #define RTC6705_REG_PA         0x07
 #define RTC6705_REG_STATE      0x0F
 #define RTC6705_REG_VCO_5G     0x04  // 5G VCO控制寄存器
@@ -81,12 +82,12 @@ UART_HandleTypeDef huart1;
 
 #define SPI_DATA_BITS 25  // 25位通信格式：4位地址+1位写控制+20位数据
 
-#define SPI_WRITE_CTRL 0  // 写控制位：0=写，1=读
+#define SPI_WRITE_CTRL 1  // 写控制位：0=写，1=读
 
 // PA寄存器使能值（参考OpenVTx）
 // OpenVTx定义: 0b10011111011111100000 = 0x13F7E0
 // 这是20位数据，需要扩展到32位用于SPI写入
-#define RTC6705_POWER_AMP_ON   0x0013F7E0  // 使能预驱动和PA，最大功率配置
+#define RTC6705_POWER_AMP_ON   0x9F7E0  // 使能预驱动和PA，最大功率配置
 // 位解析（20位数据，从位0到位19）:
 // 位[6]: PD_Q5G = 0 (使能预驱动，关键！0=使能，1=掉电)
 // 位[8:7]: PA5G_PW[1:0] = 11 (最大功率，+13dBm输出)
@@ -339,10 +340,9 @@ static void RTC6705_SPI_Write(uint8_t reg_addr, uint32_t data)
   uint32_t spi_word = 0;
   uint8_t i;
 
-  // 数据格式：4位地址 + 1位写控制(0) + 20位数据（共25位）
-  spi_word |= ((uint32_t)(reg_addr & 0x0F) << 21);  // 4位地址（0x00~0x0F）
-  spi_word |= ((uint32_t)SPI_WRITE_CTRL << 20);    // 写控制位=0
-  spi_word |= (data & 0x000FFFFF);                // 20位数据
+  spi_word |= ((uint32_t) (reg_addr & 0x0F));
+  spi_word |= ((uint32_t) SPI_WRITE_CTRL << 4);
+  spi_word |= ((uint32_t)(data & 0x000FFFFF) << 5);
 
   HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_RESET);
   HAL_Delay(1);
@@ -350,33 +350,24 @@ static void RTC6705_SPI_Write(uint8_t reg_addr, uint32_t data)
   // LSB先发送（核心修正）
   for (i = 0; i < 25; i++)
   {
-    // 取当前最低位
-    HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, (spi_word & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
+	HAL_Delay(1);
 
-    // 时钟上升沿采样
-    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, (spi_word & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET);
     HAL_Delay(1);
-    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
+
+    HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_SET);
     HAL_Delay(1);
 
     spi_word >>= 1;  // 右移，准备下一位（LSB优先）
   }
 
   HAL_GPIO_WritePin(GPIOA, SPI_CS_PIN, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, SPI_CLK_PIN, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, SPI_DATA_PIN, GPIO_PIN_RESET);
   HAL_Delay(1);
 }
 
-/**
-  * @brief  复位RTC6705状态寄存器（参考OpenVTx实现）
-  * @retval None
-  * @note   写入状态寄存器以复位芯片，确保从已知状态开始
-  */
-static void RTC6705_ResetState(void)
-{
-  // 写入状态寄存器(0x0F)，数据为0（复位命令）
-  //RTC6705_SPI_Write(RTC6705_REG_STATE, 0x00000000);
-  HAL_Delay(10);
-}
 
 /**
   * @brief  复位合成器寄存器A（参考OpenVTx实现）
@@ -414,8 +405,24 @@ static void RTC6705_PowerAmpOn(void)
   // 写入PA寄存器，使用预定义的最大功率配置值
   // RTC6705_POWER_AMP_ON = 0x0013F7E0
   // 确保：PD_Q5G=0（使能预驱动），PA5G_PW=11（最大功率），PA5G_BS=111（最大增益）
+  RTC6705_PowerAmpOff();  // 先掉电复位
+  HAL_Delay(5);
   RTC6705_SPI_Write(RTC6705_REG_PA, RTC6705_POWER_AMP_ON);
   HAL_Delay(10);
+}
+
+/**
+  * @brief  重置RTC6705状态寄存器
+  * @retval None
+  * @note   向状态寄存器写入复位值，使芯片进入初始状态
+  */
+static void RTC6705_ResetState(void) {
+  // 向状态寄存器写入复位值（0x00）
+  // 注意：RTC6705的SPI通信为25位格式（4位地址+1位写控制+20位数据）
+  RTC6705_SPI_Write(RTC6705_REG_STATE, RTC6705_STATE_RESET);
+
+  // 等待复位完成（根据芯片 datasheet 调整延迟时间）
+  HAL_Delay(5);
 }
 
 static void RTC6705_SetFrequency(uint16_t frequency_mhz)
@@ -434,20 +441,22 @@ static void RTC6705_SetFrequency(uint16_t frequency_mhz)
   A = temp % 64;
   
   // 配置寄存器B（先写B）：R=400 + N高位 + A
-  synth_reg_b = 0;
-  synth_reg_b |= (R & 0x1F) << 9;          // R分频器（位13:9）
-  synth_reg_b |= ((N >> 7) & 0x1FF) << 0;  // N高位（9位）
-  synth_reg_b |= (A & 0x3F) << 14;         // A（7位）
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, synth_reg_b);
+//  synth_reg_b = 0;
+//  synth_reg_b |= (R & 0x1F) << 9;          // R分频器（位13:9）
+//  synth_reg_b |= ((N >> 7) & 0x1FF) << 0;  // N高位（9位）
+//  synth_reg_b |= (A & 0x3F) << 14;         // A（7位）
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, 0x47981);
   HAL_Delay(10);
   
   // 配置寄存器A（后写A）：N低位 + PLL使能
-  synth_reg_a = 0;
-  synth_reg_a |= (N & 0x7F) << 0;          // N低位（7位）
-  synth_reg_a |= 0x00000800;              // 位11=1，使能PLL
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);
-  HAL_Delay(10);
+//  synth_reg_a = 0;
+//  synth_reg_a |= (N & 0x7F) << 0;          // N低位（7位）
+//  synth_reg_a |= 0x00000800;              // 位11=1，使能PLL
+//  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);
+//  HAL_Delay(10);
   
+  RTC6705_SPI_Write(RTC6705_REG_VCO_DFC_CTL, 0x0FFD7);
+
   // 更新频率和定时器
   current_frequency_mhz = frequency_mhz;
   powerUpAfterSettleTime = HAL_GetTick() + RTC6705_PLL_SETTLE_TIME_MS;
@@ -476,6 +485,13 @@ static void RTC6705_PowerUpAfterPLLSettleTime(void)
   }
 }
 
+static uint8_t RTC6705_ReadState(void) {
+    // 实现SPI读寄存器（原代码仅写，需补充读逻辑）
+    uint32_t state_data = 0;
+    // 读寄存器流程：4位地址+1位读控制（1）+20位数据（LSB先读）
+    // 补充SPI读函数后，读取0x0F寄存器，返回STATE[2:0]位
+    return (state_data >> 0) & 0x07;  // 假设STATE位是低3位
+}
 
 /**
   * @brief  初始化RTC6705芯片（参考OpenVTx实现优化）
@@ -489,18 +505,46 @@ static void RTC6705_PowerUpAfterPLLSettleTime(void)
   */
 static void RTC6705_Init(void)
 {
-  // 等待芯片上电稳定（给足够时间让芯片完成内部初始化）
-  HAL_Delay(200);
+	// 等待芯片上电稳定（给足够时间让芯片完成内部初始化）
+	HAL_Delay(2000);
 
-  // 配置5G VCO控制寄存器（可选，使用默认值）
-  RTC6705_SPI_Write(RTC6705_REG_VCO_5G, 0x00000A00);
-  HAL_Delay(20);
-  
-  // 初始化合成器寄存器B（默认值），确保R分频器正确
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, RTC6705_SYNTH_REG_B_DEFAULT);
-  HAL_Delay(20);
+	while (RTC6705_ReadState() == RTC6705_STATE_PWRON_CAL) {
+	  HAL_Delay(10);
+	}
 
-  RTC6705_SetFrequency(5809);
+	//double light
+	LED_ChipComm_On();
+	HAL_Delay(50);
+	LED_ChipComm_Off();
+	LED_ChipComm_On();
+	HAL_Delay(50);
+	LED_ChipComm_Off();
+
+	RTC6705_ResetState();
+	HAL_Delay(2000);
+
+	//double light
+	LED_ChipComm_On();
+	HAL_Delay(50);
+	LED_ChipComm_Off();
+	LED_ChipComm_On();
+	HAL_Delay(50);
+	LED_ChipComm_Off();
+
+	// 初始化合成器寄存器B（默认值），确保R分频器正确
+	//RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, RTC6705_SYNTH_REG_B_DEFAULT);
+//	HAL_Delay(2000);
+//	LED_ChipComm_On();
+//	HAL_Delay(50);
+//	LED_ChipComm_Off();
+
+	//设置频率
+	RTC6705_SetFrequency(5865);
+	HAL_Delay(2000);
+	LED_ChipComm_On();
+	HAL_Delay(50);
+	LED_ChipComm_Off();
+
 }
 
 /**
