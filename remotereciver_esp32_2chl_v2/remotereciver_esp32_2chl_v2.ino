@@ -333,7 +333,7 @@ void initRestartDiagnostics() {
   Serial.print(ESP.getFreeHeap());
   Serial.println(F(" 字节"));
   Serial.print(F("当前最小可用堆内存: "));
-  Serial.print(ESP.getMinFreeHeap());
+  Serial.print(ESP.getMinFreeHeap());c:\Users\jebbt\Documents\gitroot\remotecontroller\fpv_video\VTXFirmware\VTXFirmware.ino
   Serial.println(F(" 字节"));
   Serial.println(F("==================================\n"));
   

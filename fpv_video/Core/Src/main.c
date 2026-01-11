@@ -84,18 +84,10 @@ UART_HandleTypeDef huart1;
 
 #define SPI_WRITE_CTRL 1  // 写控制位：0=写，1=读
 
-// PA寄存器使能值（参考OpenVTx）
-// OpenVTx定义: 0b10011111011111100000 = 0x13F7E0
-// 这是20位数据，需要扩展到32位用于SPI写入
-#define RTC6705_POWER_AMP_ON   0x9F7E0  // 使能预驱动和PA，最大功率配置
-// 位解析（20位数据，从位0到位19）:
-// 位[6]: PD_Q5G = 0 (使能预驱动，关键！0=使能，1=掉电)
-// 位[8:7]: PA5G_PW[1:0] = 11 (最大功率，+13dBm输出)
-// 位[11:9]: PA5G_BS[2:0] = 111 (最大增益，7级增益)
-// 位[14:12]: DP_5G[2:0] = 011 (预驱动增益控制)
-// 位[19:15]: MAI_5G[4:0] = 00001 (预驱动输出控制)
-// 其他位: 使用默认值
-// 此配置确保PA工作在最大功率模式（+13dBm）
+#define RTC6705_POWER_AMP_ON_OPENVTX   0x9F7E0
+#define RTC6705_POWER_AMP_ON_DEFAULT  0x04FBD
+#define RTC6705_POWER_AMP_ON   RTC6705_POWER_AMP_ON_DEFAULT
+
 
 // PLL锁定等待时间（毫秒）
 #define RTC6705_PLL_SETTLE_TIME_MS  500
@@ -402,9 +394,6 @@ static void RTC6705_PowerAmpOff(void)
   */
 static void RTC6705_PowerAmpOn(void)
 {
-  // 写入PA寄存器，使用预定义的最大功率配置值
-  // RTC6705_POWER_AMP_ON = 0x0013F7E0
-  // 确保：PD_Q5G=0（使能预驱动），PA5G_PW=11（最大功率），PA5G_BS=111（最大增益）
   RTC6705_PowerAmpOff();  // 先掉电复位
   HAL_Delay(5);
   RTC6705_SPI_Write(RTC6705_REG_PA, RTC6705_POWER_AMP_ON);
@@ -429,32 +418,22 @@ static void RTC6705_SetFrequency(uint16_t frequency_mhz)
 {
   uint32_t synth_reg_a, synth_reg_b;
   uint32_t N, A;
-  const uint32_t Fosc = 8000;  // 8MHz
-  const uint32_t R = 400;      // 手册默认R分频器
   
-  // 频率限制
   frequency_mhz = (frequency_mhz < 5645) ? 5645 : (frequency_mhz > 5945) ? 5945 : frequency_mhz;
+  uint32_t freq = frequency_mhz * 1000U;
+  freq /= 40;
   
-  // 标准公式：FRF = 2*(N*64+A)*(Fosc/R) → 变形计算N/A
-  uint32_t temp = (uint32_t)frequency_mhz * R / (2 * Fosc / 1000);
-  N = temp / 64;
-  A = temp % 64;
+  N = freq / 64;
+  A = freq % 64;
   
   // 配置寄存器B（先写B）：R=400 + N高位 + A
-//  synth_reg_b = 0;
-//  synth_reg_b |= (R & 0x1F) << 9;          // R分频器（位13:9）
-//  synth_reg_b |= ((N >> 7) & 0x1FF) << 0;  // N高位（9位）
-//  synth_reg_b |= (A & 0x3F) << 14;         // A（7位）
-  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, 0x47981);
+  synth_reg_b = 0;
+  synth_reg_b = A | (N << 7);
+
+  RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, synth_reg_b);
+  //RTC6705_SPI_Write(RTC6705_REG_SYNTH_B, 0x47981);
   HAL_Delay(10);
-  
-  // 配置寄存器A（后写A）：N低位 + PLL使能
-//  synth_reg_a = 0;
-//  synth_reg_a |= (N & 0x7F) << 0;          // N低位（7位）
-//  synth_reg_a |= 0x00000800;              // 位11=1，使能PLL
-//  RTC6705_SPI_Write(RTC6705_REG_SYNTH_A, synth_reg_a);
-//  HAL_Delay(10);
-  
+
   RTC6705_SPI_Write(RTC6705_REG_VCO_DFC_CTL, 0x0FFD7);
 
   // 更新频率和定时器
