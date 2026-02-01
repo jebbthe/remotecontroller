@@ -48,6 +48,7 @@ UART_HandleTypeDef huart1;
 #define LED_POWER_PIN      GPIO_PIN_0
 #define LED_CHIP_COMM_PIN  GPIO_PIN_1
 #define LED_FC_COMM_PIN    GPIO_PIN_2
+#define PA_PIN			   GPIO_PIN_12
 
 // RTC6705 SPI引脚定义
 #define SPI_CS_PIN        GPIO_PIN_4   // PA4 - 片选/锁存使能
@@ -119,6 +120,7 @@ static void RTC6705_PowerAmpOff(void);
 static void RTC6705_SetFrequency(uint16_t frequency_mhz);
 static void RTC6705_PowerUpAfterPLLSettleTime(void);
 static void RTC6705_Init(void);
+static void PA_On(void);
 
 // LED控制函数
 static void LED_Power_On(void);
@@ -293,12 +295,12 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_4
-                          |GPIO_PIN_5|GPIO_PIN_7, GPIO_PIN_RESET);
+                          |GPIO_PIN_5|GPIO_PIN_7|GPIO_PIN_12, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA0 PA1 PA2 PA4
                            PA5 PA7 */
   GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_4
-                          |GPIO_PIN_5|GPIO_PIN_7;
+                          |GPIO_PIN_5|GPIO_PIN_7|GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -460,6 +462,7 @@ static void RTC6705_PowerUpAfterPLLSettleTime(void)
   {
     // PLL锁定时间已到，开启PA
     RTC6705_PowerAmpOn();
+    PA_On();
     powerUpAfterSettleTime = 0;  // 清除定时器
   }
 }
@@ -578,6 +581,10 @@ static void LED_FCComm_On(void)
 static void LED_FCComm_Off(void)
 {
   HAL_GPIO_WritePin(GPIOA, LED_FC_COMM_PIN, GPIO_PIN_RESET);
+}
+
+static void PA_On(void){
+  HAL_GPIO_WritePin(GPIOA, PA_PIN, GPIO_PIN_SET);
 }
 
 /**
